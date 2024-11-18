@@ -1,5 +1,7 @@
-from models.torch_models.embedding import TorchEmbedding
-
+from models.torch_models.embedding import TorchSingleInputEmbedding, TorchMultipleInputEmbedding
+from models.torch_models.aa_encoder import TorchAAEncoder
 __all__ = [
-    'TorchEmbedding'
+    'TorchSingleInputEmbedding',
+    'TorchMultipleInputEmbedding',
+    'TorchAAEncoder'
 ] 
