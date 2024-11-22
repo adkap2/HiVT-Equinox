@@ -133,21 +133,27 @@ class TorchAAEncoder(MessagePassing):
             # if self.parallel:
             #     center_rotate_mat = rotate_mat.repeat(self.historical_steps, 1, 1)[edge_index[1]]
             # else:
-            print(f"[PyTorch] rotate_mat shape: {rotate_mat.shape}")
+            # print(f"[PyTorch] rotate_mat shape: {rotate_mat.shape}")
             center_rotate_mat = rotate_mat[edge_index[1]]
             # print(f"[PyTorch] center_rotate_mat shape: {center_rotate_mat.shape}")
             
             # Rotate node and edge features using einops
 
-            print(f"[PyTorch] x_j shape: {x_j.shape}")
-            print(f"[PyTorch] center_rotate_mat shape: {center_rotate_mat.shape}")
+            # print(f"[PyTorch] x_j shape: {x_j.shape}")
+            # print(f"[PyTorch] center_rotate_mat shape: {center_rotate_mat.shape}")
             x_rotated = rearrange(x_j, 'n f -> n 1 f') @ center_rotate_mat
             x_rotated = rearrange(x_rotated, 'n 1 f -> n f')
             
             edge_rotated = rearrange(edge_attr, 'n f -> n 1 f') @ center_rotate_mat
             edge_rotated = rearrange(edge_rotated, 'n 1 f -> n f')
+
+            print(f"[PyTorch] x_rotated shape: {x_rotated.shape}")
+            print(f"[PyTorch] edge_rotated shape: {edge_rotated.shape}")
             
             nbr_embed = self.nbr_embed([x_rotated, edge_rotated])
+
+            print(f"[PyTorch] nbr_embed shape: {nbr_embed.shape}")
+            print(f"[PyTorch] nbr_embed first few values: {nbr_embed[0, :5]}")
             # nbr_embed = self.nbr_embed([torch.bmm(x_j.unsqueeze(-2), center_rotate_mat).squeeze(-2),
             #                             torch.bmm(edge_attr.unsqueeze(-2), center_rotate_mat).squeeze(-2)])
         # Can replace all this with MultiHeadAttention

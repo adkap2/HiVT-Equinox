@@ -25,16 +25,18 @@ def test_single_input_embedding() -> None:
     key = jax.random.PRNGKey(0)
     
     # Parameters
-    in_channel = 4
-    out_channel = 8
+    # in_channel = 4 # Node Dim
+    # out_channel = 8 # Embed Dim
+    node_dim = 2
+    embed_dim = 2
     batch_size = 2
 
     # Test with multiple sizes to ensure the property that multiple input factors are supported
     
     # Create models
-    jax_model = JaxEmbedding(in_channel, out_channel, key=key)
+    jax_model = JaxEmbedding(node_dim, embed_dim, key=key)
 
-    torch_model = TorchSingleInputEmbedding(in_channel, out_channel)
+    torch_model = TorchSingleInputEmbedding(node_dim, embed_dim)
 
     # torch_model.apply(torch.nn.init.ones_)
 
@@ -65,25 +67,29 @@ def test_single_input_embedding() -> None:
     # Force all weights to be the same (1 )
     
     # Create identical input data
-    np_input = np.random.randn(batch_size, in_channel).astype(np.float32)
+    np_input = np.random.randn(batch_size, node_dim).astype(np.float32)
     jax_input = jnp.array(np_input)
     torch_input = torch.FloatTensor(np_input)
     
     # Get outputs
-    jax_output = jax.vmap(jax_model)(jax_input)
+
+    # jax_output = jax.vmap(jax_model)(jax_input)
+    jax_output = jax_model(jax_input)
     # Get outputs
 
     torch_output = torch_model(torch_input)
 
     #@eqx.filter_jit
-    @jax.jit
-    def dummy_loss(model, x):
-        return jax.vmap(model)(x).sum()
-    #
+    # @jax.jit
+    # @eqx.filter_jit
+    # def dummy_loss(model, x):
+    #     # return jax.vmap(model)(x).sum()
+    #     return model(x).sum()
+    # #
     
-    # Get gradients
-    # grads = eqx.filter_grad(dummy_loss)(jax_model, jax_input)
-    grads = jax.grad(dummy_loss)(jax_model, jax_input)
+    # # Get gradients
+    # # grads = eqx.filter_grad(dummy_loss)(jax_model, jax_input)
+    # grads = jax.grad(dummy_loss)(jax_model, jax_input)
     # print(f"Gradients:\n{grads}")
     
     # Convert outputs to numpy for comparison
@@ -91,11 +97,11 @@ def test_single_input_embedding() -> None:
     torch_np = torch_output.detach().numpy()
     
     # Basic shape test
-    assert jax_output.shape == (batch_size, out_channel), \
-        f"Expected shape {(batch_size, out_channel)}, got {jax_output.shape}"
-    # print("✓ Shape test passed")
-    # print("Torch shape: ", torch_output.shape)
-    # print("Jax shape: ", jax_output.shape)
+    assert jax_output.shape == (batch_size, embed_dim), \
+        f"Expected shape {(batch_size, embed_dim)}, got {jax_output.shape}"
+    print("✓ Shape test passed")
+    print("Torch shape: ", torch_output.shape)
+    print("Jax shape: ", jax_output.shape)
     # Test with multiple different inputs
     # Run all tests
     # test_implementations_match()
@@ -113,6 +119,7 @@ def test_multiple_input_embedding() -> None:
     torch.manual_seed(0)
     key: PRNGKeyArray = jax.random.PRNGKey(0)
     in_channels: List[int] = [8, 8]
+    # in_channels = [2, 2]
     out_channel: int = 8
     batch_size: int = 2
     

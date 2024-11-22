@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import List, Optional
-
+import einops
 
 class TorchSingleInputEmbedding(nn.Module):
     def __init__(self,
@@ -59,8 +59,11 @@ class TorchMultipleInputEmbedding(nn.Module):
                 categorical_inputs: Optional[List[torch.Tensor]] = None) -> torch.Tensor:
         for i in range(len(self.module_list)):
             continuous_inputs[i] = self.module_list[i](continuous_inputs[i])
-        output = torch.stack(continuous_inputs).sum(dim=0)
         
+        output = torch.stack(continuous_inputs).sum(dim=0)
+        # Einops tested output
+
+
         print("TORCH output forward shape", output.shape)
         print("TORCH output forward first few values", output[:5])
         

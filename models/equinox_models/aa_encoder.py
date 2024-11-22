@@ -131,12 +131,15 @@ class AAEncoder(eqx.Module):
         print(f"[JAX] center_embed first few values: {center_embed[0, :5]}")
 
 
+        self.create_message(center_embed, x, edge_index, edge_attr, rotate_mat)
+
         return
+
         # Do this in EINOPS
         # Debug prints
-        print(f"JAX center_embed shape: {center_embed.shape}")
-        print(f"JAX center_embed first few values: {center_embed[0, :5]}")
-        print(f"JAX center_embed mean: {jnp.mean(center_embed)}")
+        # print(f"JAX center_embed shape: {center_embed.shape}")
+        # print(f"JAX center_embed first few values: {center_embed[0, :5]}")
+        # print(f"JAX center_embed mean: {jnp.mean(center_embed)}")
 
         # I am jsut going to create a [src,target,channel] tensor
         # Then I can just do a vmap over the edge_index and then sum over the src axis
@@ -195,18 +198,60 @@ class AAEncoder(eqx.Module):
     
 
 
-    def create_message(self, x, relpos2neighbor, rotate_mat):
+    def create_message(self, center_embed, x, edge_index, edge_attr, rotate_mat):
 
         # Rotation matrix is a [2,2] tensor
         # All 2,2 tensors 
+        # TODO switch to rel pos 2 neightbor
 
 
 
         # Create a message funiton
         # First rotate the relative position by the rotation matrix
+        print(f"[JAX] x shape: {x.shape}")
+        print(f"[JAX] edge_index shape: {edge_index.shape}")
+        x_j = x[edge_index[1]]  # Get source node features
+        print(f"[JAX] x[edge_index at 1]: {x_j}")
+        
 
-                # Everything goes into message function
+        # Get center rotate mat
         center_rotate_mat = rotate_mat[edge_index[1]]
+        # print(f"[JAX] center_rotate_mat shape: {center_rotate_mat.shape}")
+        # print(f"[JAX] center_rotate_mat first few values: {center_rotate_mat[0, :5]}")
+
+        # print(f"[JAX] x_j shape: {x_j.shape}")
+        # print(f"[JAX] center_rotate_mat shape: {center_rotate_mat.shape}")
+        
+        # Rotate node features
+        x_rotated = rearrange(x_j, 'n f -> n 1 f') @ center_rotate_mat
+        x_rotated = rearrange(x_rotated, 'n 1 f -> n f')
+        
+        # Rotate edge features
+        edge_rotated = rearrange(edge_attr, 'n f -> n 1 f') @ center_rotate_mat
+        edge_rotated = rearrange(edge_rotated, 'n 1 f -> n f')
+        
+        print(f"[JAX] x_rotated shape: {x_rotated.shape}")
+        print(f"[JAX] edge_rotated shape: {edge_rotated.shape}")
+        
+        # Compute neighbor embedding
+        nbr_embed = self._nbr_embed([x_rotated, edge_rotated])
+
+        print(f"[JAX] nbr_embed shape: {nbr_embed.shape}")
+        print(f"[JAX] nbr_embed first few values: {nbr_embed[0, :5]}")
+
+        # Questionable output shape for nbr_embed 
+        # Ensure identical initialization of weights and inputs
+        # Check the LayerNorm and activation functions in the embedding networks
+        # Verify the rotation matrix application is identical
+        return
+
+
+
+        # Everything goes into message function
+        # center_rotate_mat = rotate_mat[edge_index[1]]
+        # print(f"[JAX] x[edge_index at 1]: {x[edge_index[1]]}")
+
+
         x_rotated = jnp.matmul(x[edge_index[1]][:, None, :], center_rotate_mat)[:, 0, :]
         edge_rotated = jnp.matmul(edge_attr[:, None, :], center_rotate_mat)[:, 0, :]
         
