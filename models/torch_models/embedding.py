@@ -27,7 +27,8 @@ class TorchSingleInputEmbedding(nn.Module):
                     nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.embed(x) 
+        print("x forward shape", x.shape)
+        return self.embed(x)
     
 
 
@@ -48,7 +49,9 @@ class TorchMultipleInputEmbedding(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(out_channel, out_channel),
             nn.LayerNorm(out_channel))
-        # self.apply(init_weights) # I am going to avoid this for now
+        # self.apply(init_weights) # I am going to avoid this for now Make github issue tracker and postpone this
+        # WRITE INIT WEIGHTS to laways be 1
+
 
     def forward(self,
                 continuous_inputs: List[torch.Tensor],

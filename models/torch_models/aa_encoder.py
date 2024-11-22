@@ -27,7 +27,17 @@ class TorchAAEncoder(MessagePassing):
                  dropout: float = 0.1,
                  parallel: bool = False,
                  **kwargs) -> None:
-        super(TorchAAEncoder, self).__init__(aggr='add', node_dim=0, **kwargs)
+        super(TorchAAEncoder, self).__init__(aggr='add', node_dim=0, **kwargs) #Note they intiiakize with add aggregation. 
+        # For add aggregation, the message passing is done in the update function
+        # # Node div indiciates which axis to propogate
+        # # In this case, we want to propogate along the node axis
+        # By default it's batch, node, channel
+        # i is fixed and j is the neighbor
+        # compute the messages and then sum them up
+        # then apply the update function
+        # Ours is better to be denise. Compute the messages for every node and then sum them up
+        # Calculate the same operation for everything 
+        
         self.historical_steps = historical_steps
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -66,6 +76,7 @@ class TorchAAEncoder(MessagePassing):
                 size: Size = None) -> torch.Tensor:
         if self.parallel:
             if rotate_mat is None:
+                print("x.shape", x.shape)
                 center_embed = self.center_embed(x.view(self.historical_steps, x.shape[0] // self.historical_steps, -1))
             else:
                 center_embed = self.center_embed(
@@ -76,14 +87,21 @@ class TorchAAEncoder(MessagePassing):
                                        center_embed).view(x.shape[0], -1)
         else:
             if rotate_mat is None:
+                print("x.shape", x.shape)
                 # We want this one
                 center_embed = self.center_embed(x) # Call forward
             else:
                 center_embed = self.center_embed(torch.bmm(x.unsqueeze(-2), rotate_mat).squeeze(-2)) # Call forward
             center_embed = torch.where(bos_mask.unsqueeze(-1), self.bos_token[t], center_embed) # Apply bos mask to the center embed
+        
+        # In PyTorch version
+        print(f"PyTorch center_embed shape: {center_embed.shape}")
+        print(f"PyTorch center_embed first few values: {center_embed[0, :5]}")
+        print(f"PyTorch center_embed mean: {torch.mean(center_embed)}")
+        
         center_embed = center_embed + self._mha_block(self.norm1(center_embed), x, edge_index, edge_attr, rotate_mat,
-                                                      size) # Apply mha block to the center embed this should be the message passing
-        center_embed = center_embed + self._ff_block(self.norm2(center_embed))
+                                                       size) # Apply mha block to the center embed this should be the message passing
+        #center_embed = center_embed + self._ff_block(self.norm2(center_embed))
         return center_embed
 
         # Think about inputs of graph and outputs of the graph 
@@ -99,7 +117,7 @@ class TorchAAEncoder(MessagePassing):
                 ptr: OptTensor,
                 size_i: Optional[int]) -> torch.Tensor:
         if rotate_mat is None:
-            nbr_embed = self.nbr_embed([x_j, edge_attr]) # Call forward
+            nbr_embed = self.nbr_embed([x_j, edge_attr]) # Call forward (Neighbor embedding)
         else:
             if self.parallel:
                 center_rotate_mat = rotate_mat.repeat(self.historical_steps, 1, 1)[edge_index[1]]
@@ -107,12 +125,15 @@ class TorchAAEncoder(MessagePassing):
                 center_rotate_mat = rotate_mat[edge_index[1]]
             nbr_embed = self.nbr_embed([torch.bmm(x_j.unsqueeze(-2), center_rotate_mat).squeeze(-2),
                                         torch.bmm(edge_attr.unsqueeze(-2), center_rotate_mat).squeeze(-2)])
+        # Can replace all this with MultiHeadAttention
         query = self.lin_q(center_embed_i).view(-1, self.num_heads, self.embed_dim // self.num_heads)
         key = self.lin_k(nbr_embed).view(-1, self.num_heads, self.embed_dim // self.num_heads)
         value = self.lin_v(nbr_embed).view(-1, self.num_heads, self.embed_dim // self.num_heads)
         scale = (self.embed_dim // self.num_heads) ** 0.5
         alpha = (query * key).sum(dim=-1) / scale
-        alpha = softmax(alpha, index, ptr, size_i)
+        # All the way to here
+        
+        alpha = softmax(alpha, index, ptr, size_i) # Size is None which is the same as doing softwmax over full array
         alpha = self.attn_drop(alpha)
         return value * alpha.unsqueeze(-1)
 
@@ -120,6 +141,7 @@ class TorchAAEncoder(MessagePassing):
                inputs: torch.Tensor,
                center_embed: torch.Tensor) -> torch.Tensor:
         inputs = inputs.view(-1, self.embed_dim)
+        # Their update is just a non linear sigmoid
         gate = torch.sigmoid(self.lin_ih(inputs) + self.lin_hh(center_embed))
         return inputs + gate * (self.lin_self(center_embed) - inputs)
 
