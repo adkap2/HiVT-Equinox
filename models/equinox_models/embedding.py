@@ -2,12 +2,15 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from typing import List, Optional
-
+from beartype import beartype
 
 class ReLU(eqx.Module):
     def __call__(self, x, key=None):
         return jax.nn.relu(x)
 
+# class LayerNorm(eqx.Module):
+#     def __call__(self, x, key=None):
+#         return eqx.nn.LayerNorm(x)
 
 class SingleInputEmbedding(eqx.Module):
     layers: list
@@ -27,11 +30,15 @@ class SingleInputEmbedding(eqx.Module):
         for i, key in enumerate(keys):
             self.layers.append(eqx.nn.Sequential([
                 eqx.nn.Linear(in_channel if i == 0 else out_channel, out_channel, key=key),
-                eqx.nn.LayerNorm(out_channel),
+                # eqx.nn.LayerNorm(out_channel), # Replace this with vmap
+                jax.vmap(eqx.nn.LayerNorm(out_channel)),
+                # LayerNorm(),
                 ReLU()
             ]))
     
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        # print(f"x shape: {x.shape}")
+        # print(f"x first few values: {x[:5]}")
         for layer in self.layers:
             x = layer(x)
         return x
@@ -87,6 +94,9 @@ class MultipleInputEmbedding(eqx.Module):
         
         # Sum embeddings and apply aggregation
         output = jnp.sum(jnp.stack(processed_inputs), axis=0)
+        
+        print("EQUINOX output forward shape", output.shape)
+        print("EQUINOX output forward first few values", output[:5])
         
         # Apply aggregation layers
         for linear, norm in self.aggr_layers:

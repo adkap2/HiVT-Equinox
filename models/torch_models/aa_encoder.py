@@ -14,7 +14,7 @@ from torch_geometric.utils import subgraph
 
 from models.torch_models.embedding import TorchSingleInputEmbedding, TorchMultipleInputEmbedding
 
-
+from einops import rearrange
 
 class TorchAAEncoder(MessagePassing):
 
@@ -74,33 +74,42 @@ class TorchAAEncoder(MessagePassing):
                 bos_mask: torch.Tensor,
                 rotate_mat: Optional[torch.Tensor] = None,
                 size: Size = None) -> torch.Tensor:
-        if self.parallel:
-            if rotate_mat is None:
-                print("x.shape", x.shape)
-                center_embed = self.center_embed(x.view(self.historical_steps, x.shape[0] // self.historical_steps, -1))
-            else:
-                center_embed = self.center_embed(
-                    torch.matmul(x.view(self.historical_steps, x.shape[0] // self.historical_steps, -1).unsqueeze(-2),
-                                 rotate_mat.expand(self.historical_steps, *rotate_mat.shape)).squeeze(-2))
-            center_embed = torch.where(bos_mask.t().unsqueeze(-1),
-                                       self.bos_token.unsqueeze(-2),
-                                       center_embed).view(x.shape[0], -1)
-        else:
-            if rotate_mat is None:
-                print("x.shape", x.shape)
-                # We want this one
-                center_embed = self.center_embed(x) # Call forward
-            else:
-                center_embed = self.center_embed(torch.bmm(x.unsqueeze(-2), rotate_mat).squeeze(-2)) # Call forward
-            center_embed = torch.where(bos_mask.unsqueeze(-1), self.bos_token[t], center_embed) # Apply bos mask to the center embed
         
-        # In PyTorch version
-        print(f"PyTorch center_embed shape: {center_embed.shape}")
-        print(f"PyTorch center_embed first few values: {center_embed[0, :5]}")
-        print(f"PyTorch center_embed mean: {torch.mean(center_embed)}")
+
+        # print(f"[PyTorch] Input x shape: {x.shape}")
+        if rotate_mat is None:
+            # print("x.shape", x.shape)
+            # We want this one
+            center_embed = self.center_embed(x) # Call forward
+        else:
+            # print(f"[PyTorch] x shape before rotation: {x.shape}")  # [num_nodes, features]
+            # print(f"[PyTorch] rotate_mat shape: {rotate_mat.shape}")  # [num_nodes, 2, 2]
+            # center_embed = self.center_embed(torch.bmm(x.unsqueeze(-2), rotate_mat).squeeze(-2)) # Call forward
+            # Replace this with einops
+            x_rotated = rearrange(x, 'n f -> n 1 f') @ rotate_mat
+            x_rotated = rearrange(x_rotated, 'n 1 f -> n f')
+            # print(f"[PyTorch] x_rotated shape: {x_rotated.shape}")
+            center_embed = self.center_embed(x_rotated)
+            
+            # print(f"[PyTorch] After center_embed shape: {center_embed.shape}")
+        # center_embed = torch.where(bos_mask.unsqueeze(-1), self.bos_token[t], center_embed) # Apply bos mask to the center embed
+        # Einops
+                # Using einops instead of unsqueeze
+        bos_mask = rearrange(bos_mask, 'n -> n 1')
+        print(f"[PyTorch] bos_mask shape: {bos_mask.shape}")
+        print(f"[PyTorch] bos_token at t: {self.bos_token[t]}")
+        center_embed = torch.where(bos_mask, self.bos_token[t], center_embed)
+        
+
+
+        print(f"[PyTorch] center_embed shape: {center_embed.shape}")
+        print(f"[PyTorch] center_embed first few values: {center_embed[0, :5]}")
+
         
         center_embed = center_embed + self._mha_block(self.norm1(center_embed), x, edge_index, edge_attr, rotate_mat,
                                                        size) # Apply mha block to the center embed this should be the message passing
+        
+        # return 
         #center_embed = center_embed + self._ff_block(self.norm2(center_embed))
         return center_embed
 
@@ -116,15 +125,31 @@ class TorchAAEncoder(MessagePassing):
                 index: torch.Tensor,
                 ptr: OptTensor,
                 size_i: Optional[int]) -> torch.Tensor:
+        
+        
         if rotate_mat is None:
             nbr_embed = self.nbr_embed([x_j, edge_attr]) # Call forward (Neighbor embedding)
         else:
-            if self.parallel:
-                center_rotate_mat = rotate_mat.repeat(self.historical_steps, 1, 1)[edge_index[1]]
-            else:
-                center_rotate_mat = rotate_mat[edge_index[1]]
-            nbr_embed = self.nbr_embed([torch.bmm(x_j.unsqueeze(-2), center_rotate_mat).squeeze(-2),
-                                        torch.bmm(edge_attr.unsqueeze(-2), center_rotate_mat).squeeze(-2)])
+            # if self.parallel:
+            #     center_rotate_mat = rotate_mat.repeat(self.historical_steps, 1, 1)[edge_index[1]]
+            # else:
+            print(f"[PyTorch] rotate_mat shape: {rotate_mat.shape}")
+            center_rotate_mat = rotate_mat[edge_index[1]]
+            # print(f"[PyTorch] center_rotate_mat shape: {center_rotate_mat.shape}")
+            
+            # Rotate node and edge features using einops
+
+            print(f"[PyTorch] x_j shape: {x_j.shape}")
+            print(f"[PyTorch] center_rotate_mat shape: {center_rotate_mat.shape}")
+            x_rotated = rearrange(x_j, 'n f -> n 1 f') @ center_rotate_mat
+            x_rotated = rearrange(x_rotated, 'n 1 f -> n f')
+            
+            edge_rotated = rearrange(edge_attr, 'n f -> n 1 f') @ center_rotate_mat
+            edge_rotated = rearrange(edge_rotated, 'n 1 f -> n f')
+            
+            nbr_embed = self.nbr_embed([x_rotated, edge_rotated])
+            # nbr_embed = self.nbr_embed([torch.bmm(x_j.unsqueeze(-2), center_rotate_mat).squeeze(-2),
+            #                             torch.bmm(edge_attr.unsqueeze(-2), center_rotate_mat).squeeze(-2)])
         # Can replace all this with MultiHeadAttention
         query = self.lin_q(center_embed_i).view(-1, self.num_heads, self.embed_dim // self.num_heads)
         key = self.lin_k(nbr_embed).view(-1, self.num_heads, self.embed_dim // self.num_heads)
@@ -152,6 +177,11 @@ class TorchAAEncoder(MessagePassing):
                    edge_attr: torch.Tensor,
                    rotate_mat: Optional[torch.Tensor],
                    size: Size) -> torch.Tensor:
+        # Print x shape
+        print(f"[PyTorch] x shape: {x.shape}")
+        # x_j = x[edge_index[1]]  # Features of source nodes for each edge
+        print(f"[PyTorch] edge_index shape: {edge_index.shape}")
+        print(f"[PyTorch] x[edge_index at 1]: {x[edge_index[1]]}")
         center_embed = self.out_proj(self.propagate(edge_index=edge_index, x=x, center_embed=center_embed,
                                                     edge_attr=edge_attr, rotate_mat=rotate_mat, size=size))
         return self.proj_drop(center_embed)

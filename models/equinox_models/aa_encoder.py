@@ -5,6 +5,7 @@ from typing import Optional, Tuple, List
 from jaxtyping import Array, Float, PRNGKeyArray
 from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputEmbedding
 
+from einops import rearrange, reduce
 
 class AAEncoder(eqx.Module):
     _center_embed: SingleInputEmbedding
@@ -33,7 +34,7 @@ class AAEncoder(eqx.Module):
 
         keys = jax.random.split(key, 12)
 
-        print(f"keys shape: {keys.shape}")
+        # print(f"keys shape: {keys.shape}")
         self.historical_steps = historical_steps
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -98,23 +99,39 @@ class AAEncoder(eqx.Module):
         # 4. Feedforward
         # 5. Residual Connection
         # 6. Layer Norm
-
+        # print(f"[JAX] Input x shape: {x.shape}")
         
         if rotate_mat is None:
-            print("x.shape", x.shape)
+            # print("x.shape", x.shape)
             center_embed = self._center_embed(x)
         else:
             # TODO why do we have to expand dims to match rotation matrix
             # Look at what the dimensions represent
-            center_embed = self._center_embed(jnp.squeeze(jnp.matmul(jnp.expand_dims(x, -2), rotate_mat), axis=-2)) # Do this in EINOPS
+            # print(f"[JAX] x shape before rotation: {x.shape}")  # [num_nodes, features]
+            # print("Jax X first few values", x[:5])
+
+            x_rotated = rearrange(x, 'n f -> n 1 f') @ rotate_mat
+            x_rotated = rearrange(x_rotated, 'n 1 f -> n f')
+            # print(f"[JAX] x_rotated shape: {x_rotated.shape}")
+            
+            center_embed = self._center_embed(x_rotated)  # Note: using _center_embed in Equinox
+            # print(f"[JAX] After center_embed shape: {center_embed.shape}")
+
             # instead of matmul do @ 
             # Do it as two einops operations #TODO
         # Apply bos mask
-        center_embed = jnp.where(
-            jnp.expand_dims(bos_mask, -1),
-            self.bos_token[t], 
-            center_embed
-        ) # Test if this has same behavior as PyTorch container
+        # breakpoint()
+        # Apply bos mask using einops
+         # Fix shapes for broadcasting
+        bos_mask = rearrange(bos_mask, 'n -> n 1')
+        print(f"[JAX] bos_mask shape: {bos_mask.shape}")
+        print(f"[JAX] bos_token at t: {self.bos_token[t]}")
+        center_embed = jnp.where(bos_mask, self.bos_token[t], center_embed)
+        print(f"[JAX] center_embed shape: {center_embed.shape}")
+        print(f"[JAX] center_embed first few values: {center_embed[0, :5]}")
+
+
+        return
         # Do this in EINOPS
         # Debug prints
         print(f"JAX center_embed shape: {center_embed.shape}")

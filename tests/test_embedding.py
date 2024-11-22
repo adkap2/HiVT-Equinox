@@ -84,7 +84,7 @@ def test_single_input_embedding() -> None:
     # Get gradients
     # grads = eqx.filter_grad(dummy_loss)(jax_model, jax_input)
     grads = jax.grad(dummy_loss)(jax_model, jax_input)
-    print(f"Gradients:\n{grads}")
+    # print(f"Gradients:\n{grads}")
     
     # Convert outputs to numpy for comparison
     jax_np = np.array(jax_output)
@@ -93,17 +93,17 @@ def test_single_input_embedding() -> None:
     # Basic shape test
     assert jax_output.shape == (batch_size, out_channel), \
         f"Expected shape {(batch_size, out_channel)}, got {jax_output.shape}"
-    print("✓ Shape test passed")
-    print("Torch shape: ", torch_output.shape)
-    print("Jax shape: ", jax_output.shape)
+    # print("✓ Shape test passed")
+    # print("Torch shape: ", torch_output.shape)
+    # print("Jax shape: ", jax_output.shape)
     # Test with multiple different inputs
     # Run all tests
     # test_implementations_match()
     
-    print("\n✓ All SingleInputEmbedding tests passed")
-    print("  - Output matching verification")
-    print("  - Shape verification")
-    print("  - Multiple input tests")
+    # print("\n✓ All SingleInputEmbedding tests passed")
+    # print("  - Output matching verification")
+    # print("  - Shape verification")
+    # print("  - Multiple input tests")
 
 @beartype
 def test_multiple_input_embedding() -> None:
@@ -118,7 +118,7 @@ def test_multiple_input_embedding() -> None:
     
     # Create models
     jax_model = JaxMultiEmbedding(in_channels, out_channel, key=key)
-    # torch_model = TorchMultipleInputEmbedding(in_channels=in_channels, out_channel=out_channel)
+    torch_model = TorchMultipleInputEmbedding(in_channels=in_channels, out_channel=out_channel)
     
     # Create identical input data
     # continuous_inputs_jax: List[List[Float[Array, "_"]]] = []
@@ -162,7 +162,7 @@ def test_multiple_input_embedding() -> None:
 
     # jax_output = jax_model(continuous_inputs_jax)
     # print("Continuous inputs shapes:", [x.shape for x in continuous_inputs_torch])
-    # torch_output = torch_model(continuous_inputs_torch)
+    torch_output = torch_model(continuous_inputs_torch)
 
     @jax.jit
     def dummy_loss_multi(model, x):
@@ -170,7 +170,7 @@ def test_multiple_input_embedding() -> None:
     
     # Get gradients
     grads = jax.grad(dummy_loss_multi)(jax_model, continuous_inputs_jax)
-    print(f"Multiple Input Gradients:\n{grads}")
+    # print(f"Multiple Input Gradients:\n{grads}")
     
     # Convert outputs to numpy for comparison
     jax_np = np.array(jax_output)
@@ -180,7 +180,7 @@ def test_multiple_input_embedding() -> None:
     assert jax_output.shape == (batch_size, out_channel)
     print("✓ Multiple Input Shape test passed")
     # print("Torch shape: ", torch_output.shape)
-    print("Jax shape: ", jax_output.shape)
+    # print("Jax shape: ", jax_output.shape)
     # ensure categorical is same columsn as output type
     
 
@@ -213,4 +213,4 @@ def test_multiple_input_embedding() -> None:
 if __name__ == "__main__":
     print("\nRunning Regular Tests:")
     test_single_input_embedding()
-    test_multiple_input_embedding()
+    # test_multiple_input_embedding()

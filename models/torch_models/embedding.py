@@ -27,7 +27,8 @@ class TorchSingleInputEmbedding(nn.Module):
                     nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        print("x forward shape", x.shape)
+        # print("x forward shape", x.shape)
+        # print("x forward first few values", x[:5])
         return self.embed(x)
     
 
@@ -59,6 +60,10 @@ class TorchMultipleInputEmbedding(nn.Module):
         for i in range(len(self.module_list)):
             continuous_inputs[i] = self.module_list[i](continuous_inputs[i])
         output = torch.stack(continuous_inputs).sum(dim=0)
+        
+        print("TORCH output forward shape", output.shape)
+        print("TORCH output forward first few values", output[:5])
+        
         if categorical_inputs is not None:
             output += torch.stack(categorical_inputs).sum(dim=0)
         return self.aggr_embed(output)
