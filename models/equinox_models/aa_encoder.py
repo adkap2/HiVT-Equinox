@@ -99,7 +99,6 @@ class AAEncoder(eqx.Module):
         # 4. Feedforward
         # 5. Residual Connection
         # 6. Layer Norm
-        # print(f"[JAX] Input x shape: {x.shape}")
         
         if rotate_mat is None:
             # print("x.shape", x.shape)
@@ -107,15 +106,12 @@ class AAEncoder(eqx.Module):
         else:
             # TODO why do we have to expand dims to match rotation matrix
             # Look at what the dimensions represent
-            # print(f"[JAX] x shape before rotation: {x.shape}")  # [num_nodes, features]
-            # print("Jax X first few values", x[:5])
+
 
             x_rotated = rearrange(x, 'n f -> n 1 f') @ rotate_mat
             x_rotated = rearrange(x_rotated, 'n 1 f -> n f')
-            # print(f"[JAX] x_rotated shape: {x_rotated.shape}")
             
             center_embed = self._center_embed(x_rotated)  # Note: using _center_embed in Equinox
-            # print(f"[JAX] After center_embed shape: {center_embed.shape}")
 
             # instead of matmul do @ 
             # Do it as two einops operations #TODO
@@ -124,78 +120,14 @@ class AAEncoder(eqx.Module):
         # Apply bos mask using einops
          # Fix shapes for broadcasting
         bos_mask = rearrange(bos_mask, 'n -> n 1')
-        print(f"[JAX] bos_mask shape: {bos_mask.shape}")
-        print(f"[JAX] bos_token at t: {self.bos_token[t]}")
+
         center_embed = jnp.where(bos_mask, self.bos_token[t], center_embed)
-        print(f"[JAX] center_embed shape: {center_embed.shape}")
-        print(f"[JAX] center_embed first few values: {center_embed[0, :5]}")
+
+        center_embed = center_embed + self.create_message(jax.vmap(self.norm1)(center_embed), x, edge_index, edge_attr, rotate_mat)
+        
+        return center_embed 
 
 
-        self.create_message(center_embed, x, edge_index, edge_attr, rotate_mat)
-
-        return
-
-        # Do this in EINOPS
-        # Debug prints
-        # print(f"JAX center_embed shape: {center_embed.shape}")
-        # print(f"JAX center_embed first few values: {center_embed[0, :5]}")
-        # print(f"JAX center_embed mean: {jnp.mean(center_embed)}")
-
-        # I am jsut going to create a [src,target,channel] tensor
-        # Then I can just do a vmap over the edge_index and then sum over the src axis
-        # Then I can just take the inner product with the target axis and then add it to the center_embed
-        # This is the message function
-
-         # Apply MHA block with residual connection
-        #center_embed = center_embed + self._mha_block(self.norm1(center_embed), x, edge_index, edge_attr, rotate_mat, size)
-        # Now lets create the mha block but in line
-
-
-        # Create a message funiton
-
-        # Message passing / attention computation
-        # jax.vmap(jax.vmap(self.create_message, in_axes=(0,0,0,None)), in_axes=(0,0))
-        # Edge float[array]
-
-
-        # Create a message funiton
-        messages = self.create_message(x, edge_index, edge_attr, rotate_mat)
-        # Broadcast 
-        # Position and rotation matrix
-        # Messgage and propagation
-        # vmap(message)*edge, pos, rot_mat=rot_mat
-
-        # def propagate
-        # accunulate via sun
-        # Before this run the where function
-        # Boolean mask
-        # return einops.reduce(msgs, "tgt embed_dim -> embed_dim", "sum")
-
-        # Acculumation step
-        # Compute messages using dense operations
-        messages = jnp.einsum('ijh,jhd->ihd', alpha, value)  # [N, heads, head_dim]
-
-        output = output.reshape(-1, self.embed_dim)
-        # Inline update function
-        gate = jax.nn.sigmoid(self.lin_ih(output) + self.lin_hh(center_embed))
-        output = output + gate * (self.lin_self(center_embed) - output)
-
-        # Apply feedforward block with residual connection
-        #center_embed = center_embed + self._ff_block(self.norm2(center_embed))
-        # Project output and add residual connection
-        output = self.out_proj(output)
-        output = self.proj_drop(output)
-        center_embed = center_embed + output
-
-        # Apply feedforward block with residual connection
-        center_embed = self.norm1(center_embed)
-        ff_output = self.mlp(center_embed)
-        center_embed = center_embed + ff_output
-        center_embed = self.norm2(center_embed)
-
-
-        return center_embed
-    
 
 
     def create_message(self, center_embed, x, edge_index, edge_attr, rotate_mat):
@@ -204,24 +136,13 @@ class AAEncoder(eqx.Module):
         # All 2,2 tensors 
         # TODO switch to rel pos 2 neightbor
 
-
-
         # Create a message funiton
         # First rotate the relative position by the rotation matrix
-        print(f"[JAX] x shape: {x.shape}")
-        print(f"[JAX] edge_index shape: {edge_index.shape}")
-        x_j = x[edge_index[1]]  # Get source node features
-        print(f"[JAX] x[edge_index at 1]: {x_j}")
-        
 
+        x_j = x[edge_index[1]]  # Get source node features
         # Get center rotate mat
         center_rotate_mat = rotate_mat[edge_index[1]]
-        # print(f"[JAX] center_rotate_mat shape: {center_rotate_mat.shape}")
-        # print(f"[JAX] center_rotate_mat first few values: {center_rotate_mat[0, :5]}")
 
-        # print(f"[JAX] x_j shape: {x_j.shape}")
-        # print(f"[JAX] center_rotate_mat shape: {center_rotate_mat.shape}")
-        
         # Rotate node features
         x_rotated = rearrange(x_j, 'n f -> n 1 f') @ center_rotate_mat
         x_rotated = rearrange(x_rotated, 'n 1 f -> n f')
@@ -229,58 +150,66 @@ class AAEncoder(eqx.Module):
         # Rotate edge features
         edge_rotated = rearrange(edge_attr, 'n f -> n 1 f') @ center_rotate_mat
         edge_rotated = rearrange(edge_rotated, 'n 1 f -> n f')
-        
-        print(f"[JAX] x_rotated shape: {x_rotated.shape}")
-        print(f"[JAX] edge_rotated shape: {edge_rotated.shape}")
+
         
         # Compute neighbor embedding
         nbr_embed = self._nbr_embed([x_rotated, edge_rotated])
-
-        print(f"[JAX] nbr_embed shape: {nbr_embed.shape}")
-        print(f"[JAX] nbr_embed first few values: {nbr_embed[0, :5]}")
 
         # Questionable output shape for nbr_embed 
         # Ensure identical initialization of weights and inputs
         # Check the LayerNorm and activation functions in the embedding networks
         # Verify the rotation matrix application is identical
-        return
 
+        # Jax random key is different than torch so can expect slightly different results on the normalization
+        query = rearrange(self.lin_q(center_embed), 'n (h d) -> n h d', h=self.num_heads)
+
+
+        # Jax random key is different than torch so can expect slightly different results on the normalization
+        key = rearrange(self.lin_k(nbr_embed), 'n (h d) -> n h d', h=self.num_heads)
+
+
+        # TODO check if this is correct with Marcell
+        # Jax random key is different than torch so can expect slightly different results on the normalization
+        value = rearrange(self.lin_v(nbr_embed), 'n (h d) -> n h d', h=self.num_heads)
+
+        scale = (self.embed_dim // self.num_heads) ** 0.5
+
+        alpha = (query * key).sum(axis=-1) / scale
+
+        # Do softmax
+        alpha = jax.nn.softmax(alpha)
+ 
+
+        #TODO Pass a key into this function as an additional random key
+        alpha = self.attn_dropout(alpha, key = jax.random.PRNGKey(0))
+
+        messages = value * rearrange(alpha, 'n h -> n h 1')
+
+        # aggregate
+        messages = reduce(messages, 'n h d -> n d', 'sum')  #This reduces to [b, d]
+        ## PROPAGATION IS DONE
+
+        # Do equivilant of self.out_proj
+        # Which is linear transformation to aggregated messaged
+        messages = self.out_proj(messages)
+
+        # Apply dropout
+        # TODO pass a key into this function as an additional random key
+        messages = self.proj_drop(messages, key = jax.random.PRNGKey(0))
+
+
+        # THen update logic to add to center_embed
+        gate = jax.nn.sigmoid(self.lin_ih(messages) + self.lin_hh(center_embed))
+
+       
+        messages = messages + gate * (self.lin_self(center_embed) - messages)
+
+
+        return messages
 
 
         # Everything goes into message function
         # center_rotate_mat = rotate_mat[edge_index[1]]
-        # print(f"[JAX] x[edge_index at 1]: {x[edge_index[1]]}")
 
 
-        x_rotated = jnp.matmul(x[edge_index[1]][:, None, :], center_rotate_mat)[:, 0, :]
-        edge_rotated = jnp.matmul(edge_attr[:, None, :], center_rotate_mat)[:, 0, :]
-        
-        # 
-
-
-        nbr_embed = self._nbr_embed([
-            jnp.squeeze(jnp.matmul(jnp.expand_dims(x[edge_index[1]], -2), center_rotate_mat), axis=-2),
-            jnp.squeeze(jnp.matmul(jnp.expand_dims(edge_attr, -2), center_rotate_mat), axis=-2)
-        ])
-
-
-        # All 
-        # Create dense attention matrix [num_nodes, num_nodes, embed_dim]
-        N = len(x)
-        attention_mask = jnp.zeros((N, N), dtype=bool)
-        attention_mask = attention_mask.at[edge_index[0], edge_index[1]].set(True)
-
-        # Compute Q from center nodes, K/V from neighbor embeddings
-        query = self.lin_q(center_embed[edge_index[0]]).reshape(self.num_heads, self.embed_dim // self.num_heads)  # [E, heads, head_dim] # This should be an einops operation 
-        key = self.lin_k(nbr_embed).reshape(self.num_heads, self.embed_dim // self.num_heads)  # [E, heads, head_dim] # This should be an einops operation
-        value = self.lin_v(nbr_embed).reshape(self.num_heads, self.embed_dim // self.num_heads)  # [E, heads, head_dim] # This should be an einops operation    
-
-        # Compute attention scores for all pairs
-        scale = (self.embed_dim // self.num_heads) ** 0.5
-        alpha = jnp.sum(query * key, axis=-1) / scale  # [E, num_heads]
-        
-        # Mask out non-connected pairs and apply softmax
-        alpha = jnp.where(attention_mask[..., None], alpha, -1e9)
-        alpha = jax.nn.softmax(alpha, axis=1)
-        alpha = self.attn_dropout(alpha)
         
