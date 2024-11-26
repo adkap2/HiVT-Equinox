@@ -4,6 +4,7 @@ import jax.numpy as jnp
 from typing import List, Optional
 from beartype import beartype
 
+@beartype
 class ReLU(eqx.Module):
     def __call__(self, x, key=None):
         return jax.nn.relu(x)
@@ -15,6 +16,8 @@ class ReLU(eqx.Module):
 class SingleInputEmbedding(eqx.Module):
     layers: list
     
+    # @beartype
+    # TODO FAILS BEARTYPE
     def __init__(self,
                  in_channel: int,
                  out_channel: int,
@@ -36,6 +39,7 @@ class SingleInputEmbedding(eqx.Module):
                 ReLU()
             ]))
     
+    @beartype
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         # print(f"x shape: {x.shape}")
         # print(f"x first few values: {x[:5]}")
@@ -117,6 +121,7 @@ class MultipleInputEmbedding(eqx.Module):
     aggr_embed: eqx.Module
     
     # @beartype
+    # TODO FAILS BEARTYPE
     def __init__(self,
                  in_channels: list[int],
                  out_channel: int,
@@ -149,7 +154,7 @@ class MultipleInputEmbedding(eqx.Module):
         ])
 
 
-
+    @beartype
     def __call__(self,
                  continuous_inputs: List[jnp.ndarray], 
                  categorical_inputs: Optional[List[jnp.ndarray]] = None) -> jnp.ndarray:
@@ -159,8 +164,8 @@ class MultipleInputEmbedding(eqx.Module):
             processed_inputs.append(network(x))
         
         output = jnp.stack(processed_inputs).sum(axis=0)
-        print("EQUINOX output forward shape", output.shape)
-        print("EQUINOX output forward first few values", output[:5])
+        # print("EQUINOX output forward shape", output.shape)
+        # print("EQUINOX output forward first few values", output[:5])
         
         if categorical_inputs is not None:
             output += jnp.stack(categorical_inputs).sum(axis=0)
