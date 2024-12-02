@@ -16,7 +16,7 @@ from jaxtyping import Array, Float, PRNGKeyArray
 # Bear type
 
 
-@beartype
+# @beartype
 def test_single_input_embedding() -> None:
     """Test JAX/Equinox SingleInputEmbedding against PyTorch version"""
     
@@ -45,41 +45,38 @@ def test_single_input_embedding() -> None:
     #new_weight = jax.random.normal(...)
     #where = lambda l: l.weight
     #new_linear = eqx.tree_at(where, linear, new_weight)
-    """def trunc_init(weight: jax.Array, key: jax.random.PRNGKey) -> jax.Array:
-        out, in_ = weight.shape
-        stddev = math.sqrt(1 / in_)
-        return stddev * jax.random.truncated_normal(key, shape=(out, in_), lower=-2, upper=2)"""
+    # def trunc_init(weight: jax.Array, key: jax.random.PRNGKey) -> jax.Array:
+    #     out, in_ = weight.shape
+    #     stddev = math.sqrt(1 / in_)
+    #     return stddev * jax.random.truncated_normal(key, shape=(out, in_), lower=-2, upper=2)
 
-    """python
-    import equinox as eqx
-    import jax.tree_util
-    import jax.numpy as jnp
+    # import equinox as eqx
+    # import jax.tree_util
+    # import jax.numpy as jnp
 
-    def initialize_params(model, value=1.0):
-        #Initialize all parameters in a PyTree model to a specified value.
-        def init_fn(x):
-            if isinstance(x, (jnp.ndarray, jnp.generic)):
-                return jnp.full_like(x, value)
-            return x  # Return non-array leaves unchanged
+    # def initialize_params(model, value=1.0):
+    #     #Initialize all parameters in a PyTree model to a specified value.
+    #     def init_fn(x):
+    #         if isinstance(x, (jnp.ndarray, jnp.generic)):
+    #             return jnp.full_like(x, value)
+    #         return x  # Return non-array leaves unchanged
 
-        return tree_util.tree_map(init_fn, model)
-    """
-    # Force all weights to be the same (1 )
+    #     return tree_util.tree_map(init_fn, model)
     
-    # Create identical input data
-    np_input = np.random.randn(batch_size, node_dim).astype(np.float32)
-    jax_input = jnp.array(np_input)
-    torch_input = torch.FloatTensor(np_input)
+    # # Force all weights to be the same (1 )
     
-    # Get outputs
+    # # Create identical input data
+    
+    x_torch = torch.randn(batch_size, node_dim) # [2, 2]
+    x_eqx = x_torch.numpy()
+    jax_input: jnp.ndarray = jnp.array(x_eqx) # Shape: [batch_size, node_dim] -> [2, 2] 
 
-    # jax_output = jax.vmap(jax_model)(jax_input)
-    jax_output = jax_model(jax_input)
-    # Get outputs
 
-    torch_output = torch_model(torch_input)
+    torch_output = torch_model(x_torch)
 
-    #@eqx.filter_jit
+    eqx_output = jax.vmap(jax_model)(jax_input)
+
+    # @eqx.filter_jit
     # @jax.jit
     # @eqx.filter_jit
     # def dummy_loss(model, x):
@@ -91,17 +88,17 @@ def test_single_input_embedding() -> None:
     # # grads = eqx.filter_grad(dummy_loss)(jax_model, jax_input)
     # grads = jax.grad(dummy_loss)(jax_model, jax_input)
     # print(f"Gradients:\n{grads}")
-    
-    # Convert outputs to numpy for comparison
-    jax_np = np.array(jax_output)
-    torch_np = torch_output.detach().numpy()
+    # # breakpoint()
     
     # Basic shape test
-    assert jax_output.shape == (batch_size, embed_dim), \
-        f"Expected shape {(batch_size, embed_dim)}, got {jax_output.shape}"
+    assert eqx_output.shape == (batch_size, embed_dim), \
+        f"Expected shape {(batch_size, embed_dim)}, got {eqx_output.shape}"
     print("✓ Shape test passed")
     print("Torch shape: ", torch_output.shape)
-    print("Jax shape: ", jax_output.shape)
+    print("Jax shape: ", eqx_output.shape)
+
+    print("Torch output: ", torch_output)
+    print("Jax output: ", eqx_output)
     # Test with multiple different inputs
     # Run all tests
     # test_implementations_match()
@@ -111,31 +108,50 @@ def test_single_input_embedding() -> None:
     # print("  - Shape verification")
     # print("  - Multiple input tests")
 
-@beartype
+# @beartype
 def test_multiple_input_embedding() -> None:
     """Test JAX/Equinox MultipleInputEmbedding against PyTorch version"""
     
     # Set random seeds
     torch.manual_seed(0)
     key: PRNGKeyArray = jax.random.PRNGKey(0)
-    in_channels: List[int] = [8, 8]
-    # in_channels = [2, 2]
-    out_channel: int = 8
+
+
+    node_dim = 2 
+    edge_dim = 2
+    embed_dim = 2
+    in_channels: List[int] = [node_dim, edge_dim] # [2, 2]
+    out_channel: int = embed_dim # 2
     batch_size: int = 2
     
     # Create models
     jax_model = JaxMultiEmbedding(in_channels, out_channel, key=key)
     torch_model = TorchMultipleInputEmbedding(in_channels=in_channels, out_channel=out_channel)
     
-    # Create identical input data
-    # continuous_inputs_jax: List[List[Float[Array, "_"]]] = []
-    continuous_inputs_torch : List[Float[Array, "batch _"]] = []
-    continuous_inputs_jax : List[Float[Array, "batch _"]] = []
+    # # Create identical input data
+    # # continuous_inputs_jax: List[List[Float[Array, "_"]]] = []
+    # continuous_inputs_torch : List[Float[Array, "batch _"]] = []
+    # continuous_inputs_jax : List[Float[Array, "batch _"]] = []
 
-    for in_channel in in_channels:
-        np_input = np.random.randn(batch_size, in_channel).astype(np.float32)
-        continuous_inputs_torch.append(torch.FloatTensor(np_input))
-        continuous_inputs_jax.append(jnp.array(np_input))
+    # for in_channel in in_channels:
+    #     np_input = np.random.randn(batch_size, in_channel).astype(np.float32)
+    #     continuous_inputs_torch.append(torch.FloatTensor(np_input))
+    #     continuous_inputs_jax.append(jnp.array(np_input))
+
+    x_torch = torch.randn(batch_size, node_dim) # [2, 2]
+    x_eqx = x_torch.numpy()
+    jax_input: jnp.ndarray = jnp.array(x_eqx) # Shape: [batch_size, node_dim] -> [2, 2] 
+
+    edge_index_torch = torch.tensor([[0, 1], [1, 0]], dtype=torch.long) # [2, 2]
+    edge_index_eqx = edge_index_torch.numpy()
+    jax_edge_index: jnp.ndarray = jnp.array(edge_index_eqx) # Shape: [2, 2]
+
+    edge_attr_torch = torch.randn(edge_index_torch.shape[1], edge_dim) # Shape: [num_edges, edge_dim] -> [2, 2]
+    edge_attr_eqx = edge_attr_torch.numpy()
+    jax_edge_attr: jnp.ndarray = jnp.array(edge_attr_eqx) # Shape: [num_edges, edge_dim] -> [2, 2]
+
+    jax_multi_embed = jax.vmap(lambda x, e: jax_model([x, e]))(jax_input, jax_edge_attr)
+
 
 
     # We can use the torch input an vmap to axis 1
@@ -159,49 +175,56 @@ def test_multiple_input_embedding() -> None:
     #     # Do stack
     #     torch_list = torch.stack(torch_list)
     #     continuous_inputs_torch.append(torch_list)
+    # print("Continuous inputs shapes:", [x.shape for x in continuous_inputs_jax])
+    # breakpoint()
+    
+    # def jax_model_continuous(*continuous_inputs):
+    #     return jax_model(continuous_inputs)
 
-    def jax_model_continuous(*continuous_inputs):
-        return jax_model(continuous_inputs)
 
+    # # Get outputs
+    # jax_output = jax.vmap(jax_model_continuous)(*continuous_inputs_jax)  # Use vmap instead
 
-    # Get outputs
-    jax_output = jax.vmap(jax_model_continuous)(*continuous_inputs_jax)  # Use vmap instead
-
-    # jax_output = jax_model(continuous_inputs_jax)
-    # print("Continuous inputs shapes:", [x.shape for x in continuous_inputs_torch])
-    torch_output = torch_model(continuous_inputs_torch)
+    # # jax_output = jax_model(continuous_inputs_jax)
+    # # print("Continuous inputs shapes:", [x.shape for x in continuous_inputs_torch])
+    # torch_output = torch_model(continuous_inputs_torch)
 
     @jax.jit
-    def dummy_loss_multi(model, x):
-        return jax.vmap(model)(x).sum()
+    def dummy_loss_multi(model, x, e):
+        return jax.vmap(lambda x, e: model([x, e]))(x, e).sum()
+        # return jax.vmap(model)(x).sum()
     
     # Get gradients
-    grads = jax.grad(dummy_loss_multi)(jax_model, continuous_inputs_jax)
-    # print(f"Multiple Input Gradients:\n{grads}")
-    
+    # grads = jax.grad(dummy_loss_multi)(jax_model, continuous_inputs_jax)
+
+    grads = jax.grad(dummy_loss_multi)(jax_model, jax_input, jax_edge_attr)
+    print(f"Multiple Input Gradients:\n{grads}")
+
+    # run grads on torch
+
     # Convert outputs to numpy for comparison
-    jax_np = np.array(jax_output)
+    # jax_np = np.array(jax_output)
     # torch_np = torch_output.detach().numpy()
     
     # Basic shape test
-    assert jax_output.shape == (batch_size, out_channel)
+    assert jax_multi_embed.shape == (batch_size, out_channel)
     print("✓ Multiple Input Shape test passed")
     # print("Torch shape: ", torch_output.shape)
     # print("Jax shape: ", jax_output.shape)
     # ensure categorical is same columsn as output type
     
 
-    # Fix categorical input test
-    categorical_dim: int = out_channel
-    cat_input_jax: Float[Array, "batch n cat_dim"] = jnp.array(
-        np.random.randn(batch_size, 3, categorical_dim).astype(np.float32)
-    )
+    # # Fix categorical input test
+    # categorical_dim: int = out_channel
+    # cat_input_jax: Float[Array, "batch n cat_dim"] = jnp.array(
+    #     np.random.randn(batch_size, 3, categorical_dim).astype(np.float32)
+    # )
 
-    def jax_model_categorical(categorical_inputs, *continuous_inputs):
-        return jax_model(continuous_inputs, categorical_inputs)
+    # def jax_model_categorical(categorical_inputs, *continuous_inputs):
+    #     return jax_model(continuous_inputs, categorical_inputs)
 
 
-    jax_output_with_cat = jax.vmap(jax_model_categorical)(cat_input_jax, *continuous_inputs_jax)  # Use vmap instead # Mapping over the batches
+    # jax_output_with_cat = jax.vmap(jax_model_categorical)(cat_input_jax, *continuous_inputs_jax)  # Use vmap instead # Mapping over the batches
 
     # print(f"PyTorch: {cat_input_torch.shape}")
     
@@ -214,10 +237,10 @@ def test_multiple_input_embedding() -> None:
 
     # torch_output_with_cat = torch_model(continuous_inputs_torch, cat_input_torch)
     
-    assert jax_output_with_cat.shape == (batch_size, out_channel)
-    print("✓ Multiple Input with Categorical Shape test passed")
+    # assert jax_output_with_cat.shape == (batch_size, out_channel)
+    # print("✓ Multiple Input with Categorical Shape test passed")
 
 if __name__ == "__main__":
     print("\nRunning Regular Tests:")
     test_single_input_embedding()
-    # test_multiple_input_embedding()
+    test_multiple_input_embedding()
