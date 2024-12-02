@@ -9,6 +9,7 @@ from einops import rearrange, reduce
 # Import beartype
 from beartype import beartype
 
+# Add jax type signature to inputs and outputs
 
 class ReLU(eqx.Module):
     def __call__(self, x, key=None):
@@ -68,7 +69,7 @@ class AAEncoder(eqx.Module):
     def __init__(
         self,
         historical_steps,
-        node_dim,
+        node_dim, #TODO Node dim is always 2
         edge_dim,
         embed_dim,
         num_heads=8,
@@ -123,12 +124,12 @@ class AAEncoder(eqx.Module):
     @beartype
     def __call__(
         self,
-        x,
-        edge_index,
-        edge_attr,
-        bos_mask,
+        x, # Shape: [batch_size, node_dim]
+        edge_index, # shape: [2, num_edges]
+        edge_attr, # Shape: [num_edges, edge_dim]
+        bos_mask, # Shape: [batch_size]
         t: Optional[int] = None,
-        rotate_mat=None,
+        rotate_mat=None, #shape: [batch_size, embed_dim, embed_dim] #TODO Every rotation matrix is a 2x2 matrix
         size=None,
     ):
 
@@ -149,6 +150,14 @@ class AAEncoder(eqx.Module):
         # 5. Residual Connection
         # 6. Layer Norm
 
+        #TODO Rotation matrix is always a 2x2 matrix
+        # TODO this should be a tensor containing 2x2 matricies 
+        # TODO edges themselves are just 2x2 since they are jsut distances
+        # Want to apply rotation matrix to every node. 
+        # Vmapping over the matrix multiplication operator
+
+        # print("EQX X", x)
+
         if rotate_mat is None:
             # print("x.shape", x.shape)
             center_embed = self._center_embed(x)
@@ -156,15 +165,11 @@ class AAEncoder(eqx.Module):
             # TODO why do we have to expand dims to match rotation matrix
             # Look at what the dimensions represent
 
-            x_rotated = rearrange(x, "n f -> n 1 f") @ rotate_mat
-            x_rotated = rearrange(x_rotated, "n 1 f -> n f")
+            # Do the vmap right here instead of rotation matrix:
+            x_rotated = jax.vmap(lambda x, m: x @ m)(x, rotate_mat)
+            # Vmap over the rotation matrix
+            center_embed = jax.vmap(self._center_embed)(x_rotated)
 
-            center_embed = self._center_embed(
-                x_rotated
-            )  # Note: using _center_embed in Equinox
-
-            # instead of matmul do @
-            # Do it as two einops operations #TODO
         # Apply bos mask
         # breakpoint()
         # Apply bos mask using einops
@@ -178,8 +183,6 @@ class AAEncoder(eqx.Module):
         )
 
         center_embed = jax.vmap(self.norm2)(center_embed)
-        # print(f"[JAX] center_embed shape after norm2: {center_embed.shape}")
-        # print(f"[JAX] center_embed first few values after norm2: {center_embed[0, :5]}")
 
         # TODO Talk to Marcell about this approach for handling keys with batch size
         # Testing
@@ -193,18 +196,29 @@ class AAEncoder(eqx.Module):
         return center_embed
 
     @beartype
-    def create_message(self, center_embed, x, edge_index, edge_attr, rotate_mat):
+    def create_message(self,
+                        center_embed, # Shape: [batch_size, embed_dim]
+                        x, # Shape: [batch_size, node_dim]
+                        edge_index, # Shape: [2, num_edges]
+                        edge_attr, # Shape: [num_edges, edge_dim]
+                        rotate_mat): # Shape: [batch_size, embed_dim, embed_dim]
 
+        
+        # print("EQX center_embed", center_embed)
         # Rotation matrix is a [2,2] tensor
         # All 2,2 tensors
         # TODO switch to rel pos 2 neightbor
-
+        # print("EQX x.shape", x.shape)
+        # print("EQX x", x)
         # Create a message funiton
         # First rotate the relative position by the rotation matrix
-
-        x_j = x[edge_index[1]]  # Get source node features
+        # print("EQX x", x)
+        x_j = x[edge_index[0]]  # Get source node features
+        # print("EQX x_j.shape", x_j.shape)
+        # print("EQX x[j]", x_j)
         # Get center rotate mat
         center_rotate_mat = rotate_mat[edge_index[1]]
+        # print("EQX center_rotate_mat", center_rotate_mat)
 
         # Rotate node features
         x_rotated = rearrange(x_j, "n f -> n 1 f") @ center_rotate_mat
@@ -214,30 +228,48 @@ class AAEncoder(eqx.Module):
         edge_rotated = rearrange(edge_attr, "n f -> n 1 f") @ center_rotate_mat
         edge_rotated = rearrange(edge_rotated, "n 1 f -> n f")
 
+        # print("EQX edge_rotated", edge_rotated)
+        # print("EQX X_rotated", x_rotated)
         # Compute neighbor embedding
-        nbr_embed = self._nbr_embed([x_rotated, edge_rotated])
+        # nbr_embed = self._nbr_embed([x_rotated, edge_rotated])
+        # Do vmap here
+        # nbr_embed = jax.vmap(self._nbr_embed)([x_rotated, edge_rotated])
+        # x_rotated: [batch_size, node_dim]
+
+        nbr_embed = jax.vmap(lambda x, e: self._nbr_embed([x, e]))(x_rotated, edge_rotated)
+
+        # print("EQX nbr_embed", nbr_embed)
 
         # Questionable output shape for nbr_embed
         # Ensure identical initialization of weights and inputs
         # Check the LayerNorm and activation functions in the embedding networks
         # Verify the rotation matrix application is identical
 
+        # print("EQX center_embed", center_embed)
         # Jax random key is different than torch so can expect slightly different results on the normalization
-        query = rearrange(
-            self.lin_q(center_embed), "n (h d) -> n h d", h=self.num_heads
-        )
-
+        # query = rearrange(
+        #     self.lin_q(center_embed), "n (h d) -> n h d", h=self.num_heads
+        # )
+        query = rearrange(jax.vmap(lambda x: self.lin_q(x))(center_embed), "n (h d) -> n h d", h=self.num_heads)
+        # print("EQX linq", jax.vmap(self.lin_q)(center_embed))
+        # print("EQX query", query)
+        # print("EQX query", query)
         # Jax random key is different than torch so can expect slightly different results on the normalization
-        key = rearrange(self.lin_k(nbr_embed), "n (h d) -> n h d", h=self.num_heads)
-
+        
+        # old way
+        # key = rearrange(self.lin_k(nbr_embed), "n (h d) -> n h d", h=self.num_heads)
+        
+        key = rearrange(jax.vmap(lambda x: self.lin_k(x))(nbr_embed), "n (h d) -> n h d", h=self.num_heads)
+        # print("EQX key", key)
         # TODO check if this is correct with Marcell
         # Jax random key is different than torch so can expect slightly different results on the normalization
-        value = rearrange(self.lin_v(nbr_embed), "n (h d) -> n h d", h=self.num_heads)
-
+        value = rearrange(jax.vmap(lambda x: self.lin_v(x))(nbr_embed), "n (h d) -> n h d", h=self.num_heads)
+        # print("EQX value", value)
         scale = (self.embed_dim // self.num_heads) ** 0.5
+        # print("EQX scale", scale)
 
         alpha = (query * key).sum(axis=-1) / scale
-
+        print("EQX alpha", alpha)
         # Do softmax
         alpha = jax.nn.softmax(alpha)
 
@@ -249,10 +281,14 @@ class AAEncoder(eqx.Module):
         # aggregate
         messages = reduce(messages, "n h d -> n d", "sum")  # This reduces to [b, d]
         ## PROPAGATION IS DONE
+        # print("EQX messages", messages)
 
         # Do equivilant of self.out_proj
         # Which is linear transformation to aggregated messaged
         messages = self.out_proj(messages)
+        # print("EQX messages", messages)
+
+        # print("EQX messages", messages)
 
         # Apply dropout
         # TODO pass a key into this function as an additional random key
@@ -262,6 +298,7 @@ class AAEncoder(eqx.Module):
         gate = jax.nn.sigmoid(self.lin_ih(messages) + self.lin_hh(center_embed))
 
         messages = messages + gate * (self.lin_self(center_embed) - messages)
+        # print("EQX messages", messages)
 
         return messages
 
