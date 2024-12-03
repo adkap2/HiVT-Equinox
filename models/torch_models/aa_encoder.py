@@ -21,7 +21,7 @@ from models.torch_models.embedding import (
     TorchMultipleInputEmbedding,
 )
 
-
+# Add torch type signature
 
 
 class TorchAAEncoder(MessagePassing):
@@ -51,36 +51,38 @@ class TorchAAEncoder(MessagePassing):
         # Ours is better to be denise. Compute the messages for every node and then sum them up
         # Calculate the same operation for everything
 
-        self.historical_steps = historical_steps
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.parallel = parallel
+        self.historical_steps = historical_steps  # int
+        self.embed_dim = embed_dim  # int
+        self.num_heads = num_heads  # int
+        self.parallel = parallel  # bool
 
         self.center_embed = TorchSingleInputEmbedding(
             in_channel=node_dim, out_channel=embed_dim
-        )
+        )  # TorchSingleInputEmbedding
         self.nbr_embed = TorchMultipleInputEmbedding(
             in_channels=[node_dim, edge_dim], out_channel=embed_dim
-        )
-        self.lin_q = nn.Linear(embed_dim, embed_dim)
-        self.lin_k = nn.Linear(embed_dim, embed_dim)
-        self.lin_v = nn.Linear(embed_dim, embed_dim)
-        self.lin_self = nn.Linear(embed_dim, embed_dim)
-        self.attn_drop = nn.Dropout(dropout)
-        self.lin_ih = nn.Linear(embed_dim, embed_dim)
-        self.lin_hh = nn.Linear(embed_dim, embed_dim)
-        self.out_proj = nn.Linear(embed_dim, embed_dim)
-        self.proj_drop = nn.Dropout(dropout)
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.norm2 = nn.LayerNorm(embed_dim)
+        )  # TorchMultipleInputEmbedding
+        self.lin_q = nn.Linear(embed_dim, embed_dim)  # nn.Linear
+        self.lin_k = nn.Linear(embed_dim, embed_dim)  # nn.Linear
+        self.lin_v = nn.Linear(embed_dim, embed_dim)  # nn.Linear
+        self.lin_self = nn.Linear(embed_dim, embed_dim)  # nn.Linear
+        self.attn_drop = nn.Dropout(dropout)  # nn.Dropout
+        self.lin_ih = nn.Linear(embed_dim, embed_dim)  # nn.Linear
+        self.lin_hh = nn.Linear(embed_dim, embed_dim)  # nn.Linear
+        self.out_proj = nn.Linear(embed_dim, embed_dim)  # nn.Linear
+        self.proj_drop = nn.Dropout(dropout)  # nn.Dropout
+        self.norm1 = nn.LayerNorm(embed_dim)  # nn.LayerNorm
+        self.norm2 = nn.LayerNorm(embed_dim)  # nn.LayerNorm
         self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 4),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(embed_dim * 4, embed_dim),
-            nn.Dropout(dropout),
+            nn.Linear(embed_dim, embed_dim * 4),  # nn.Linear -> 4x embed_dim
+            nn.ReLU(inplace=True),  # nn.ReLU
+            nn.Dropout(dropout),  # nn.Dropout
+            nn.Linear(embed_dim * 4, embed_dim),  # nn.Linear -> 4x embed_dim
+            nn.Dropout(dropout),  # nn.Dropout
         )
-        self.bos_token = nn.Parameter(torch.Tensor(historical_steps, embed_dim))
+        self.bos_token = nn.Parameter(
+            torch.Tensor(historical_steps, embed_dim)
+        )  # nn.Parameter
         nn.init.normal_(self.bos_token, mean=0.0, std=0.02)
         # TODO: Add initialization for the weights
         # self.apply(init_weights)
@@ -88,36 +90,35 @@ class TorchAAEncoder(MessagePassing):
     @beartype
     def forward(
         self,
-        x: torch.Tensor,
+        x: torch.Tensor,  # Shape: [batch_size, node_dim] -> [2, 2]
         t: Optional[int],
-        edge_index: Adj,
-        edge_attr: torch.Tensor,
-        bos_mask: torch.Tensor,
-        rotate_mat: Optional[torch.Tensor] = None,
+        edge_index: torch.Tensor,  # Assuming shape [2, 2]
+        edge_attr: torch.Tensor,  # Assuming shape [num_edges, edge_dim] -> [2, 2]
+        bos_mask: torch.Tensor,  # Assuming shape [batch_size] -> [2]
+        rotate_mat: Optional[
+            torch.Tensor
+        ] = None,  # Assuming shape [batch_size, embed_dim, embed_dim] -> [2, 2, 2]
         size: Size = None,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor:  # Assuming output shape [batch, embed_dim]
 
-        # print(f"[PyTorch] Input x shape: {x.shape}")
+        # x is list of 2D points
+
         if rotate_mat is None:
-            # print("x.shape", x.shape)
             # We want this one
-            center_embed = self.center_embed(x)  # Call forward
+            center_embed = self.center_embed(x)  #
         else:
             # center_embed = self.center_embed(torch.bmm(x.unsqueeze(-2), rotate_mat).squeeze(-2)) # Call forward
             # Replace this with einops
+            # Rotation matrix is a 2x2x2 matrix
             x_rotated = rearrange(x, "n f -> n 1 f") @ rotate_mat
             x_rotated = rearrange(x_rotated, "n 1 f -> n f")
             center_embed = self.center_embed(x_rotated)
 
-        # center_embed = torch.where(bos_mask.unsqueeze(-1), self.bos_token[t], center_embed) # Apply bos mask to the center embed
         # Einops
         # Using einops instead of unsqueeze
         bos_mask = rearrange(bos_mask, "n -> n 1")
 
         center_embed = torch.where(bos_mask, self.bos_token[t], center_embed)
-
-        # print(f"[PyTorch] center_embed shape: {center_embed.shape}")
-        # print(f"[PyTorch] center_embed first few values: {center_embed[0, :5]}")
 
         center_embed = center_embed + self._mha_block(
             self.norm1(center_embed), x, edge_index, edge_attr, rotate_mat, size
@@ -128,14 +129,15 @@ class TorchAAEncoder(MessagePassing):
 
         # Think about inputs of graph and outputs of the graph
         # Just mechanical translation this module for now
+
     @beartype
     def message(
         self,
-        edge_index: Adj,
-        center_embed_i: torch.Tensor,
-        x_j: torch.Tensor,
-        edge_attr: torch.Tensor,
-        rotate_mat: Optional[torch.Tensor],
+        edge_index: Adj,  # Shape: [2, num_edges]
+        center_embed_i: torch.Tensor,  # Shape: [batch_size, embed_dim]
+        x_j: torch.Tensor,  # Shape: [num_edges, node_dim]
+        edge_attr: torch.Tensor,  # Shape: [num_edges, edge_dim]
+        rotate_mat: Optional[torch.Tensor],  # Shape: [batch_size, embed_dim, embed_dim]
         index: torch.Tensor,
         ptr: OptTensor,
         size_i: Optional[int],
@@ -151,6 +153,7 @@ class TorchAAEncoder(MessagePassing):
             # else:
             # print(f"[PyTorch] rotate_mat shape: {rotate_mat.shape}")
             center_rotate_mat = rotate_mat[edge_index[1]]
+            # print("TORCH center_rotate_mat", center_rotate_mat)
             # print(f"[PyTorch] center_rotate_mat shape: {center_rotate_mat.shape}")
 
             # Rotate node and edge features using einops
@@ -167,12 +170,13 @@ class TorchAAEncoder(MessagePassing):
         )
 
         key = rearrange(self.lin_k(nbr_embed), "n (h d) -> n h d", h=self.num_heads)
-
+        # print("TORCH key", key)
         value = rearrange(self.lin_v(nbr_embed), "n (h d) -> n h d", h=self.num_heads)
-
+        # print("TORCH value", value)
         scale = (self.embed_dim // self.num_heads) ** 0.5
 
         alpha = (query * key).sum(dim=-1) / scale
+        # print("TORCH alpha", alpha)
 
         alpha = softmax(
             alpha, index, ptr, size_i
@@ -187,27 +191,26 @@ class TorchAAEncoder(MessagePassing):
 
         # Their update is just a non linear sigmoid
         gate = torch.sigmoid(self.lin_ih(inputs) + self.lin_hh(center_embed))
-
         return inputs + gate * (self.lin_self(center_embed) - inputs)
 
     @beartype
     def _mha_block(
         self,
-        center_embed: torch.Tensor,
-        x: torch.Tensor,
-        edge_index: Adj,
-        edge_attr: torch.Tensor,
-        rotate_mat: Optional[torch.Tensor],
+        center_embed: torch.Tensor,  # Shape: [batch_size, embed_dim]
+        x: torch.Tensor,  # Shape: [num_edges, node_dim]
+        edge_index: Adj,  # Shape: [2, num_edges]
+        edge_attr: torch.Tensor,  # Shape: [num_edges, edge_dim]
+        rotate_mat: Optional[torch.Tensor],  # Shape: [batch_size, embed_dim, embed_dim]
         size: Size,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor:  # Shape: [batch_size, embed_dim]
 
         center_embed = self.out_proj(
             self.propagate(
-                edge_index=edge_index,
-                x=x,
-                center_embed=center_embed,
-                edge_attr=edge_attr,
-                rotate_mat=rotate_mat,
+                edge_index=edge_index,  # Shape: [2, num_edges] -> [2, 2]
+                x=x,  # Shape: [num_edges, node_dim]
+                center_embed=center_embed,  # Shape: [batch_size, embed_dim]
+                edge_attr=edge_attr,  # Shape: [num_edges, edge_dim]
+                rotate_mat=rotate_mat,  # Shape: [batch_size, embed_dim, embed_dim]
                 size=size,
             )
         )

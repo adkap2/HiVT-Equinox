@@ -8,6 +8,8 @@ from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputE
 from einops import rearrange, reduce
 # Import beartype
 from beartype import beartype
+import typing
+from typing import List, Tuple, Optional
 
 # Add jax type signature to inputs and outputs
 
@@ -32,9 +34,11 @@ class MLP(eqx.Module):
         self.relu = ReLU()
 
     @beartype
-    def __call__(self, x, key):
+    def __call__(self, 
+                x, # Array([[Float][Float]])
+                key): # PRNGKeyArray
         key1, key2 = jax.random.split(key)
-        x = self.linear1(x)
+        x = self.linear1(x) 
         x = self.relu(x)
         x = self.dropout1(x, key=key1)
         x = self.linear2(x)
@@ -68,10 +72,10 @@ class AAEncoder(eqx.Module):
     @beartype
     def __init__(
         self,
-        historical_steps,
+        historical_steps, 
         node_dim, #TODO Node dim is always 2
-        edge_dim,
-        embed_dim,
+        edge_dim, # 2
+        embed_dim, # 2
         num_heads=8,
         dropout=0.1,
         *,
@@ -124,14 +128,15 @@ class AAEncoder(eqx.Module):
     @beartype
     def __call__(
         self,
-        x, # Shape: [batch_size, node_dim]
-        edge_index, # shape: [2, num_edges]
-        edge_attr, # Shape: [num_edges, edge_dim]
-        bos_mask, # Shape: [batch_size]
-        t: Optional[int] = None,
-        rotate_mat=None, #shape: [batch_size, embed_dim, embed_dim] #TODO Every rotation matrix is a 2x2 matrix
+        x, # Shape: [batch_size, node_dim] Array[[Float][Float]]
+        edge_index, # shape: [2, num_edges] Array[[Int][Int]]
+        edge_attr, # Shape: [num_edges, edge_dim] Array[[Float][Float]]
+        bos_mask, # Shape: [batch_size] Array[[Bool][Bool]]
+        t: Optional[int] = None, # Optional[int]
+        rotate_mat=None, #shape: [batch_size, embed_dim, embed_dim]  Array[[[Float][Float]][[Float][Float]]]
         size=None,
     ):
+
 
         # CHeange type signature to [List] node features, edge features,
         # Break the call function into three steps
@@ -166,44 +171,53 @@ class AAEncoder(eqx.Module):
             # Look at what the dimensions represent
 
             # Do the vmap right here instead of rotation matrix:
-            x_rotated = jax.vmap(lambda x, m: x @ m)(x, rotate_mat)
+            x_rotated = jax.vmap(lambda x, m: x @ m)(x, rotate_mat) # Array[[Float][Float]]
+            # print("EQX x_rotated", x_rotated)
+            # breakpoint()
             # Vmap over the rotation matrix
-            center_embed = jax.vmap(self._center_embed)(x_rotated)
+            center_embed = jax.vmap(self._center_embed)(x_rotated) # Array[[Float][Float]]
+
 
         # Apply bos mask
         # breakpoint()
         # Apply bos mask using einops
         # Fix shapes for broadcasting
-        bos_mask = rearrange(bos_mask, "n -> n 1")
+        bos_mask = rearrange(bos_mask, "n -> n 1") # Array[[Bool][Bool]]
 
-        center_embed = jnp.where(bos_mask, self.bos_token[t], center_embed)
+
+        center_embed = jnp.where(bos_mask, self.bos_token[t], center_embed) # Array[[Float][Float]]
 
         center_embed = center_embed + self.create_message(
             jax.vmap(self.norm1)(center_embed), x, edge_index, edge_attr, rotate_mat
-        )
+        ) # Array[[Float][Float]]
 
-        center_embed = jax.vmap(self.norm2)(center_embed)
+
+        center_embed = jax.vmap(self.norm2)(center_embed) # Array[[Float][Float]]
 
         # TODO Talk to Marcell about this approach for handling keys with batch size
         # Testing
-        batch_size = center_embed.shape[0]
-        mlp_keys = jax.random.split(jax.random.PRNGKey(0), batch_size)
+        batch_size = center_embed.shape[0] # Int            
+        mlp_keys = jax.random.split(jax.random.PRNGKey(0), batch_size) # Array[PRNGKeyArray] # Similar to Array of ints
+
 
         center_embed = center_embed + jax.vmap(lambda x, k: self.mlp(x, k))(
             center_embed, mlp_keys
-        )
+        ) # Array[[Float][Float]]
+
 
         return center_embed
 
     @beartype
     def create_message(self,
-                        center_embed, # Shape: [batch_size, embed_dim]
-                        x, # Shape: [batch_size, node_dim]
-                        edge_index, # Shape: [2, num_edges]
-                        edge_attr, # Shape: [num_edges, edge_dim]
-                        rotate_mat): # Shape: [batch_size, embed_dim, embed_dim]
+                        center_embed, # Shape: [batch_size, embed_dim] Array[[Float][Float]]
+                        x, # Shape: [batch_size, node_dim] Array[[Float][Float]]
+                        edge_index, # Shape: [2, num_edges] Array[[Int][Int]]
+                        edge_attr, # Shape: [num_edges, edge_dim] Array[[Float][Float]]
+                        rotate_mat): # Shape: [batch_size, embed_dim, embed_dim] Array[[[Float][Float]][[Float][Float]]]
 
-        
+        # print("EQX x", edge_index)
+        # breakpoint()
+        # print("EQX rotate_mat", rotate_mat)
         # print("EQX center_embed", center_embed)
         # Rotation matrix is a [2,2] tensor
         # All 2,2 tensors
@@ -213,13 +227,21 @@ class AAEncoder(eqx.Module):
         # Create a message funiton
         # First rotate the relative position by the rotation matrix
         # print("EQX x", x)
-        x_j = x[edge_index[0]]  # Get source node features
+        # edge_index[0]  is the source node Array[Int]
+        # print("EQX edge_index[0]", edge_index[0])
+        # breakpoint()
+        print("x", x)
+        x_j = x[edge_index[0]]  # Get source node features Array[[Float][Float]]
         # print("EQX x_j.shape", x_j.shape)
         # print("EQX x[j]", x_j)
         # Get center rotate mat
-        center_rotate_mat = rotate_mat[edge_index[1]]
+        center_rotate_mat = rotate_mat[edge_index[1]] # Array[[[Float][Float]][[Float][Float]]]
+
         # print("EQX center_rotate_mat", center_rotate_mat)
 
+        print("EQX x_j", x_j)
+        print("EQX rearrange(x_j, 'n f -> n 1 f')", rearrange(x_j, "n f -> n 1 f"))
+        breakpoint()
         # Rotate node features
         x_rotated = rearrange(x_j, "n f -> n 1 f") @ center_rotate_mat
         x_rotated = rearrange(x_rotated, "n 1 f -> n f")
@@ -269,7 +291,7 @@ class AAEncoder(eqx.Module):
         # print("EQX scale", scale)
 
         alpha = (query * key).sum(axis=-1) / scale
-        print("EQX alpha", alpha)
+        # print("EQX alpha", alpha)
         # Do softmax
         alpha = jax.nn.softmax(alpha)
 
