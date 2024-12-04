@@ -2,7 +2,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from typing import Optional, Tuple, List
-from jaxtyping import Array, Float, PRNGKeyArray
+from jaxtyping import Array, Float, PRNGKeyArray, Int
 from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputEmbedding
 
 from einops import rearrange, reduce
@@ -21,7 +21,7 @@ from utils import print_array_type
 
 class ReLU(eqx.Module):
     def __call__(self,
-                  x, # Float[Array, "batch 8"]
+                  x: Float[Array, "batch 8"],
                     key=None):
         output = jax.nn.relu(x)  # Float[Array, "batch 8"]
         return output
@@ -35,7 +35,7 @@ class MLP(eqx.Module):
     relu: ReLU
 
     @beartype
-    def __init__(self, embed_dim, dropout_rate, keys):
+    def __init__(self, embed_dim: int, dropout_rate: float, keys: PRNGKeyArray[Array, "2"]):
         self.linear1 = eqx.nn.Linear(embed_dim, embed_dim * 4, key=keys[0])
         self.linear2 = eqx.nn.Linear(embed_dim * 4, embed_dim, key=keys[1])
         self.dropout1 = eqx.nn.Dropout(dropout_rate)
@@ -44,8 +44,10 @@ class MLP(eqx.Module):
 
     @beartype
     def __call__(
-        self, x, key  # Batched Type Annotation: Float[Array, "batch 2"]
-    ):  # PRNGKeyArray[Array, "2"]
+        self, 
+        x: Float[Array, "batch 2"], 
+        key: PRNGKeyArray[Array, "2"]
+    ) -> Float[Array, "batch 2"]: 
 
         key1, key2 = jax.random.split(key)
         x = self.linear1(x)  # Float[Array, "batch 8"]
@@ -85,12 +87,12 @@ class AAEncoder(eqx.Module):
     @beartype
     def __init__(
         self,
-        historical_steps,
-        node_dim,  # TODO Node dim is always 2
-        edge_dim,  # 2
-        embed_dim,  # 2
-        num_heads=8,
-        dropout=0.1,
+        historical_steps: int,
+        node_dim: int,  # TODO Node dim is always 2
+        edge_dim: int,  # 2
+        embed_dim: int,  # 2
+        num_heads: int = 8,
+        dropout: float = 0.1,
         *,
         key: Optional[PRNGKeyArray] = None,
     ):
@@ -141,12 +143,12 @@ class AAEncoder(eqx.Module):
     @beartype
     def __call__(
         self,
-        x,  # Shape: [batch_size, node_dim] Float[Array, "2 2"]
-        edge_index,  # shape: [2, num_edges] Int[Array, "2 2"]
-        edge_attr,  # Shape: [num_edges, edge_dim] Float[Array, "2 2"]
-        bos_mask,  # Shape: [batch_size] Bool[Array, "2"]
+        x: Float[Array, "2 2"],  # Shape: [batch_size, node_dim]
+        edge_index: Int[Array, "2 2"],  # shape: [2, num_edges]
+        edge_attr: Float[Array, "2 2"],  # Shape: [num_edges, edge_dim]
+        bos_mask: Bool[Array, "2"],  # Shape: [batch_size]
         t: Optional[int] = None,  # Optional[int]
-        rotate_mat=None,  # shape: [batch_size, embed_dim, embed_dim] Float[Array, "2 2 2"]
+        rotate_mat: Optional[Float[Array, "2 2 2"]] = None,  # shape: [batch_size, embed_dim, embed_dim]
         size=None,
     ):
 
@@ -224,12 +226,12 @@ class AAEncoder(eqx.Module):
     @beartype
     def create_message(
         self,
-        center_embed,  # Shape: [batch_size, embed_dim] Float[Array, "2 2"]
-        x,  # Shape: [batch_size, node_dim] Float[Array, "2 2"]
-        edge_index,  # Shape: [2, num_edges] Int[Array, "2 2"]
-        edge_attr,  # Shape: [num_edges, edge_dim] Float[Array, "2 2"]
-        rotate_mat,
-    ):  # Shape: [batch_size, embed_dim, embed_dim] Float[Array, "2 2 2"]
+        center_embed: Float[Array, "2 2"],  # Shape: [batch_size, embed_dim]
+        x: Float[Array, "2 2"],  # Shape: [batch_size, node_dim]
+        edge_index: Int[Array, "2 2"],  # Shape: [2, num_edges]
+        edge_attr: Float[Array, "2 2"],  # Shape: [num_edges, edge_dim]
+        rotate_mat: Float[Array, "2 2 2"], # Shape: [batch_size, embed_dim, embed_dim]
+    ): # -> Float[Array, "2 2 1"]
 
         # Rotation matrix is a [2,2] tensor
         # All 2,2 tensors
