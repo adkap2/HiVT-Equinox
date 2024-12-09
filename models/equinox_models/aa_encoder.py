@@ -2,7 +2,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from typing import Optional, Tuple, List
-from jaxtyping import Array, Float, PRNGKeyArray, Int
+from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool
 from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputEmbedding
 
 from einops import rearrange, reduce
@@ -34,31 +34,31 @@ class MLP(eqx.Module):
     dropout2: eqx.nn.Dropout
     relu: ReLU
 
-    @beartype
-    def __init__(self, embed_dim: int, dropout_rate: float, keys: PRNGKeyArray[Array, "2"]):
+    # @beartype
+    def __init__(self, embed_dim: int, dropout_rate: float, keys: PRNGKeyArray):
         self.linear1 = eqx.nn.Linear(embed_dim, embed_dim * 4, key=keys[0])
         self.linear2 = eqx.nn.Linear(embed_dim * 4, embed_dim, key=keys[1])
         self.dropout1 = eqx.nn.Dropout(dropout_rate)
         self.dropout2 = eqx.nn.Dropout(dropout_rate)
         self.relu = ReLU()
 
-    @beartype
+    # @beartype
     def __call__(
         self, 
-        x: Float[Array, "batch 2"], 
-        key: PRNGKeyArray[Array, "2"]
-    ) -> Float[Array, "batch 2"]: 
+        nodes,  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
+        key
+    ) -> Float[Array, "2 2"]:  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
 
         key1, key2 = jax.random.split(key)
-        x = self.linear1(x)  # Float[Array, "batch 8"]
+        nodes = self.linear1(nodes)  # Float[Array, "batch 8"]
 
-        x = self.relu(x)  # Float[Array, "batch 8"]
+        nodes = self.relu(nodes)  # Float[Array, "batch 8"]
 
-        x = self.dropout1(x, key=key1)  # Float[Array, "batch 8"]
+        nodes = self.dropout1(nodes, key=key1)  # Float[Array, "batch 8"]
 
-        x = self.linear2(x)  # Float[Array, "batch 2"]
-        x = self.dropout2(x, key=key2)  # Float[Array, "batch 2"]
-        return x
+        nodes = self.linear2(nodes)  # Float[Array, "batch 2"]
+        nodes = self.dropout2(nodes, key=key2)  # Float[Array, "batch node_dim=2"]
+        return nodes
 
 
 class AAEncoder(eqx.Module):
@@ -84,7 +84,7 @@ class AAEncoder(eqx.Module):
     mlp: eqx.nn.Sequential
     bos_token: jnp.ndarray
 
-    @beartype
+    # @beartype
     def __init__(
         self,
         historical_steps: int,
@@ -140,17 +140,54 @@ class AAEncoder(eqx.Module):
         # TODO: Add initialization for the weights
         # self.apply(init_weights)
 
+
+    #TODO def hub_spoke_nn(self,
+    # idx: int,
+    # *,
+    # rot_mats: Optional[Float[Array, "node 2 2"]] = None,
+    #nodes: Float[Array, "node node_dim=2"],
+    # adj_mat: Bool[Array, "node node"],
+
+
+    # node = nodes[idx]
+    # neighbors = nodes[adj_mat[idx]]
+    # R = rots_mats[idx]
+
+    # # 2. Translate to node centric frame
+    # ## 2a center on node
+
+    # ## 2b apply rotation matrices
+
+    # node = node@R
+    # neighbors = jax.vmap(lambda n: n @ R)(neighbors)
+
+    # center_embed = self._center_embed(node)
+
+
+     
+
+
+
+
+    #  node: Float[Array, "node_dim=2"],
+    #  adj_row: Bool[Array, "node"],
+    #  nodes: Float[Array, "node node_dim=2"]) -> Float[Array, "hidden_dim"]
+
     @beartype
     def __call__(
         self,
-        x: Float[Array, "2 2"],  # Shape: [batch_size, node_dim]
-        edge_index: Int[Array, "2 2"],  # shape: [2, num_edges]
-        edge_attr: Float[Array, "2 2"],  # Shape: [num_edges, edge_dim]
-        bos_mask: Bool[Array, "2"],  # Shape: [batch_size]
+        nodes: Float[Array, "batch_size node_dim=2"],  # Shape: [batch_size, node_dim=2]
+        edge_index: Int[Array, "2 num_edges"],  # shape: [2, num_edges]
+        edge_attr: Float[Array, "num_edges 2"],  # Shape: [num_edges, edge_dim]
+        bos_mask: Bool[Array, "batch_size"],  # Shape: [batch_size]
         t: Optional[int] = None,  # Optional[int]
-        rotate_mat: Optional[Float[Array, "2 2 2"]] = None,  # shape: [batch_size, embed_dim, embed_dim]
+        rotate_mat: Optional[Float[Array, "batch_size 2 2"]] = None,  # shape: [batch_size, embed_dim, embed_dim]
         size=None,
     ):
+
+        
+        #TODO message_passing = jax.vmap(sel.hub_spoke_nn)
+        #Todo latent = message_passing(nodes, adj_mat)
 
         # CHeange type signature to [List] node features, edge features,
         # Break the call function into three steps
@@ -179,14 +216,14 @@ class AAEncoder(eqx.Module):
 
         if rotate_mat is None:
             # print("x.shape", x.shape)
-            center_embed = self._center_embed(x)
+            center_embed = self._center_embed(nodes)
         else:
             # TODO why do we have to expand dims to match rotation matrix
             # Look at what the dimensions represent
 
             # Do the vmap right here instead of rotation matrix:
             x_rotated = jax.vmap(lambda x, m: x @ m)(
-                x, rotate_mat
+                nodes, rotate_mat
             )  # Float[Array, "2 2"]
 
             # Vmap over the rotation matrix
@@ -205,7 +242,7 @@ class AAEncoder(eqx.Module):
         )  # Float[Array, "2 2"]
 
         center_embed = center_embed + self.create_message(
-            jax.vmap(self.norm1)(center_embed), x, edge_index, edge_attr, rotate_mat
+            jax.vmap(self.norm1)(center_embed), nodes, edge_index, edge_attr, rotate_mat
         )  # Float[Array, "2 2"]
 
         center_embed = jax.vmap(self.norm2)(center_embed)  # Float[Array, "2 2"]
@@ -227,20 +264,20 @@ class AAEncoder(eqx.Module):
     def create_message(
         self,
         center_embed: Float[Array, "2 2"],  # Shape: [batch_size, embed_dim]
-        x: Float[Array, "2 2"],  # Shape: [batch_size, node_dim]
-        edge_index: Int[Array, "2 2"],  # Shape: [2, num_edges]
-        edge_attr: Float[Array, "2 2"],  # Shape: [num_edges, edge_dim]
-        rotate_mat: Float[Array, "2 2 2"], # Shape: [batch_size, embed_dim, embed_dim]
+        nodes: Float[Array, "2 node_dim=2"],  # Shape:  # Shape: [node, node_dim=2] Should be Float[Array, "node node_dim=2"]
+        edge_index: Int[Array, "2 num_edges"],  # Shape: [2, num_edges] # This should be neighbors. For each node you should have a list of neighbors Adjacency matrix Bool[Array, "node node"]
+        edge_attr: Float[Array, "num_edges edge_dim=2"],  # Shape: [num_edges, edge_dim] # Then we can ignore this one  because we have an adjmatrix
+        rotate_mat: Float[Array, "batch_size 2 2"], # Shape: [batch_size, embed_dim, embed_dim]
     ): # -> Float[Array, "2 2 1"]
-
+        # TODO replace x with node as that is a better name (List of nodes)
         # Rotation matrix is a [2,2] tensor
         # All 2,2 tensors
         # TODO switch to rel pos 2 neightbor
-
+        center_embed_i = center_embed[edge_index[1]]  # target nodes, equivalent to center_embed_i in PyTorch Graph
         # Create a message funiton
         # First rotate the relative position by the rotation matrix
 
-        x_j = x[edge_index[0]]  # Get source node features Float[Array, "2 2"]
+        x_j = nodes[edge_index[0]]  # Get source node features Float[Array, "2 2"]
 
         # Get center rotate mat
         center_rotate_mat = rotate_mat[edge_index[1]]  # Float[Array, "2 2 2"]
@@ -268,18 +305,19 @@ class AAEncoder(eqx.Module):
             x_rotated, edge_rotated
         )  # Float[Array, "2 2"]
 
-        # Questionable output shape for nbr_embed
-        # Ensure identical initialization of weights and inputs
-        # Check the LayerNorm and activation functions in the embedding networks
-        # Verify the rotation matrix application is identical
 
+        # print("nbr_embed.shape", nbr_embed.shape)
+        # print("center_embed.shape", center_embed.shape)
+        # print()
+        # breakpoint()
         # Jax random key is different than torch so can expect slightly different results on the normalization
-
+        ############################################################################################
         query = rearrange(
-            jax.vmap(lambda x: self.lin_q(x))(center_embed),
+            jax.vmap(lambda x: self.lin_q(x))(center_embed_i),
             "n (h d) -> n h d",
             h=self.num_heads,
         )  # Float[Array, "2 2 1"]
+
 
         # Jax random key is different than torch so can expect slightly different results on the normalization
 
@@ -302,6 +340,9 @@ class AAEncoder(eqx.Module):
 
         scale = (self.embed_dim // self.num_heads) ** 0.5  # Float
 
+
+
+
         alpha = (query * key).sum(axis=-1) / scale  # Float[Array, "2 2"]
 
         # Do softmax
@@ -313,16 +354,27 @@ class AAEncoder(eqx.Module):
         )  # Float[Array, "2 2"]
 
         messages = value * rearrange(alpha, "n h -> n h 1")  # Float[Array, "2 2 1"]
+        ############################################################################################
 
         # aggregate
-        messages = reduce(
-            messages, "n h d -> n d", "sum"
-        )  # This reduces to [b, d] # Float[Array, "2 1"]
+        # messages = reduce(
+        #     messages, "n h d -> n d", "sum"
+        # )  # This reduces to [b, d] # Float[Array, "2 1"]
 
+        # This is done under the hood in torch the aggregation
+        out = jax.ops.segment_sum(
+            messages,
+            edge_index[1],  # segment ids (target nodes)
+            num_segments=nodes.shape[0]  # total number of nodes
+        )  # Shape: [num_nodes, num_heads, head_dim]
+
+
+        messages = rearrange(out, 'n h d -> n (h d)')  # Shape: [num_nodes, embed_dim]
         ## PROPAGATION IS DONE
 
         # Do equivilant of self.out_proj
         # Which is linear transformation to aggregated messaged
+
         messages = self.out_proj(messages)  # Float[Array, "2 2"]
 
         # Apply dropout
@@ -340,6 +392,7 @@ class AAEncoder(eqx.Module):
             self.lin_self(center_embed) - messages
         )  # Float[Array, "2 2"]
 
+        print("EQX outputs", messages)
         return messages
 
         # Everything goes into message function

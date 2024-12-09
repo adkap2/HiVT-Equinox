@@ -155,6 +155,7 @@ class TorchAAEncoder(MessagePassing):
         size_i: Optional[int],
     ) -> torch.Tensor:  # Shape: [batch_size, embed_dim] -> Float[Tensor, "2 2 1"]
 
+
         if rotate_mat is None:
             nbr_embed = self.nbr_embed(
                 [x_j, edge_attr]
@@ -176,10 +177,16 @@ class TorchAAEncoder(MessagePassing):
                 [x_rotated, edge_rotated]
             )  # Float[Tensor, "2 2"]
 
+
+        # print("nbr_embed.shape", nbr_embed.shape)
+        # breakpoint()
+
+
         # Can replace all this with MultiHeadAttention
         query = rearrange(
             self.lin_q(center_embed_i), "n (h d) -> n h d", h=self.num_heads
         )  # Float[Tensor, "2 2 1"]
+
 
         key = rearrange(
             self.lin_k(nbr_embed), "n (h d) -> n h d", h=self.num_heads
@@ -191,6 +198,7 @@ class TorchAAEncoder(MessagePassing):
         )  # Float[Tensor, "2 2 1"]
 
         scale = (self.embed_dim // self.num_heads) ** 0.5
+
 
         alpha = (query * key).sum(dim=-1) / scale  # Float[Tensor, "2 2"]
 
@@ -215,6 +223,7 @@ class TorchAAEncoder(MessagePassing):
         outputs = inputs + gate * (
             self.lin_self(center_embed) - inputs
         )  # Float[Tensor, "2 2"]
+        # print("TORCH outputs", outputs)
         return outputs
 
     @beartype
@@ -230,8 +239,7 @@ class TorchAAEncoder(MessagePassing):
         size: Size,
     ) -> torch.Tensor:  # Shape: [batch_size, embed_dim] -> Float[Tensor, "2 2"]
 
-        center_embed = self.out_proj(
-            self.propagate(
+        prop = self.propagate(
                 edge_index=edge_index,  # Shape: [2, num_edges] -> [2, 2]
                 x=x,  # Shape: [num_edges, node_dim]
                 center_embed=center_embed,  # Shape: [batch_size, embed_dim]
@@ -239,7 +247,7 @@ class TorchAAEncoder(MessagePassing):
                 rotate_mat=rotate_mat,  # Shape: [batch_size, embed_dim, embed_dim]
                 size=size,
             )
-        )  # Float[Tensor, "2 2"]
+        center_embed = self.out_proj(prop)  # Float[Tensor, "2 2"]
 
         outputs = self.proj_drop(center_embed)  # Float[Tensor, "2 2"]
 
