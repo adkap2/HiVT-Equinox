@@ -67,6 +67,7 @@ def test_single_input_embedding() -> None:
     
     # # Create identical input data
     
+    
     x_torch = torch.randn(batch_size, node_dim) # [2, 2]
     x_eqx = x_torch.numpy()
     jax_input: jnp.ndarray = jnp.array(x_eqx) # Shape: [batch_size, node_dim] -> [2, 2] 
