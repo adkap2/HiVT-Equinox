@@ -175,15 +175,15 @@ def process_argoverse(split: str,
 
     # bos_mask is True if time step t is valid and time step t-1 is invalid
     bos_mask[:, 0] = ~padding_mask[:, 0]
-    bos_mask[:, 1: 20] = padding_mask[:, : 19] & ~padding_mask[:, 1: 20]
+    bos_mask[:, 1:20] = padding_mask[:, :19] & ~padding_mask[:, 1:20] # Its not really a beginning of sequence mask, it tells us if the agent is in the current scene but not in the previous scene
 
     positions = x.clone()
     x[:, 20:] = torch.where((padding_mask[:, 19].unsqueeze(-1) | padding_mask[:, 20:]).unsqueeze(-1),
                             torch.zeros(num_nodes, 30, 2),
-                            x[:, 20:] - x[:, 19].unsqueeze(-2)) # [N, 30, 2]
-    x[:, 1: 20] = torch.where((padding_mask[:, : 19] | padding_mask[:, 1: 20]).unsqueeze(-1),
-                              torch.zeros(num_nodes, 19, 2),
-                              x[:, 1: 20] - x[:, : 19]) # [N, 19, 2]
+                            x[:, 20:] - x[:, 19].unsqueeze(-2)) # TODO [N, 30, 2] # Replace with EINOPS
+    x[:, 1:20] = torch.where((padding_mask[:, :19] | padding_mask[:, 1:20]).unsqueeze(-1),
+                              torch.zeros(num_nodes, 19, 2), # TODO this calculation should be done in the local endoder. Basically if you don't have a previous position, you can't calculate the difference
+                              x[:, 1:20] - x[:, :19]) # [N, 19, 2] # TODO Replace with EINOPS 
     x[:, 0] = torch.zeros(num_nodes, 2) # [N, 2] # Position of the Nodes at Time Step 0
 
     # get lane features at the current time step
@@ -214,7 +214,7 @@ def process_argoverse(split: str,
     breakpoint()
 
     return {
-        'x': x[:, : 20],  # [N, 20, 2]
+        'x': x[:, :20],  # [N, 20, 2]
         'positions': positions,  # [N, 50, 2]
         'edge_index': edge_index,  # [2, N x N - 1]
         'y': y,  # [N, 30, 2]
