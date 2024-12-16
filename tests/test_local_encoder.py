@@ -143,35 +143,7 @@ def test_aa_encoder():
     torch_output = torch_model(
         data,
     ) # Shape: [batch_size, embed_dim] -> [2, 2]
-    # print(f"Torch output: {torch_output}")
-    # breakpoint()
 
-    # for t in range(historical_steps):
-    #     torch_output = torch_model(
-    #         x_torch[:, t], # Shape [batch_size, node_dim] -> [2, 2]
-    #         t = t,
-    #         edge_index=edge_index_torch, # Shape: [2, num_edges] -> [2, 2]
-    #         edge_attr=edge_attr_torch, # Shape: [num_edges, edge_dim] -> [2, 2]
-    #         bos_mask=bos_mask_torch, # Shape: [batch_size] -> [2]
-    #         rotate_mat=batch_rot_mat_torch, # Shape: [batch_size, embed_dim, embed_dim] -> [2, 2, 2]
-    #     )
-    #     print(f"Torch output at time {t}: {torch_output}")
-    # torch_output = torch_model(
-    #     x_torch, # Shape [batch_size, node_dim] -> [2,2]
-    #     t=0,
-    #     edge_index=edge_index_torch, # Shape: [2, num_edges] -> [2, 2]
-    #     edge_attr=edge_attr_torch, # Shape: [num_edges, edge_dim] -> [2, 2]
-    #     bos_mask=bos_mask_torch, # Shape: [batch_size] -> [2]
-    #     rotate_mat=batch_rot_mat_torch, # Shape: [batch_size, embed_dim, embed_dim] -> [2, 2, 2]
-    # ) # Shape: [batch_size, embed_dim] -> [2, 2]
-    # # Create identical input data
-    # np_input: np.ndarray = np.random.randn(batch_size, node_dim).astype(np.float32) # Shape [batch_size, node_dim] -> [2, 2]
-    # Just focus on first actor
-    # x_eqx = x_torch[:,0].numpy() # Shape: [batch_size, node_dim] -> [2, 2]
-    # jax_input: jnp.ndarray = jnp.array(x_eqx) # Shape: [batch_size, node_dim] -> [2, 2] 
-    # print(f"[JAX] jax_input shape: {jax_input.shape}")
-    # print(f"[JAX] jax_input first few values: {jax_input[0, :5]}")
-    # breakpoint()
 
     eqx_model = EquinoxLocalEncoder(
         historical_steps=historical_steps,
@@ -195,18 +167,18 @@ def test_aa_encoder():
     edge_attr_jax = jnp.array(edge_attr_torch.numpy()) # [2, 2]
 
     positions_jax = jnp.array(positions_torch.numpy()) # [N, 50, 2]
+    print("positions_jax", positions_jax)
+    print("positions_jax shape", positions_jax.shape)
+    # breakpoint()
 
     padding_mask_jax = jnp.array(padding_mask_torch.numpy()) # [N, 50]
 
 
     data_jax = {
-        'x': x_jax,
-        'edge_index': edge_index_jax,
         'edge_attr': edge_attr_jax,
+        'edge_index': edge_index_jax,
         'bos_mask': bos_mask_jax,
-        'rotate_mat': eqx_batch_rot_mat,
         'positions': positions_jax,
-        'padding_mask': padding_mask_jax,
     }
 
     eqx_output: jnp.ndarray = eqx_model(
