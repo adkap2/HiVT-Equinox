@@ -88,24 +88,26 @@ class LocalEncoder(eqx.Module):
         Returns:
             Output tensor of shape [T, N, D]
         """
-        for t in range(self.historical_steps):
-            data[f"edge_index_{t}"], _ = subgraph(
-                subset=~data["padding_mask"][:, t], edge_index=data["edge_index"]
-            )
-            data[f"edge_attr_{t}"] = (
-                data["positions"][data[f"edge_index_{t}"][0], t]
-                - data["positions"][data[f"edge_index_{t}"][1], t]
-            )
+        # for t in range(self.historical_steps):
+            # data[f"edge_index_{t}"], _ = subgraph(
+            #     subset=~data["padding_mask"][:, t], edge_index=data["edge_index"]
+            # )
+            # data[f"edge_attr_{t}"] = (
+            #     data["positions"][data[f"edge_index_{t}"][0], t]
+            #     - data["positions"][data[f"edge_index_{t}"][1], t]
+            # )
 
         # Process each timestep
         outputs = []
-        for t in range(self.historical_steps):
+        for t in range(1, self.historical_steps):
 
             out_t = self.aa_encoder(
-                positions=data["positions"], t=t, bos_mask=data["bos_mask"]
+                positions=data["positions"], t=t, bos_mask=data["bos_mask"], padding_mask=data["padding_mask"]
             )  # More efficient to do the calculation inside the hub spoke and actually just pass in positojns
 
             outputs.append(out_t)
+
+        # Can all be done with vmap over the time dimension
 
         # Stack outputs along time dimension
         return jnp.stack(outputs)  # [T, N, D]

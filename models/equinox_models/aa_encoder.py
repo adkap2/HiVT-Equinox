@@ -60,6 +60,7 @@ class MLP(eqx.Module):
 class AAEncoder(eqx.Module):
     _center_embed: SingleInputEmbedding
     _nbr_embed: MultipleInputEmbedding
+    attention: eqx.nn.MultiheadAttention
     lin_q: eqx.nn.Linear
     lin_k: eqx.nn.Linear
     lin_v: eqx.nn.Linear
@@ -108,6 +109,8 @@ class AAEncoder(eqx.Module):
             in_channels=[node_dim, edge_dim], out_channel=embed_dim, key=keys[1]
         )
 
+        self.attention = eqx.nn.MultiheadAttention(num_heads=self.num_heads, query_size=self.embed_dim, key=jax.random.PRNGKey(0))
+
         self.lin_q = eqx.nn.Linear(embed_dim, embed_dim, key=keys[2])
         self.lin_k = eqx.nn.Linear(embed_dim, embed_dim, key=keys[3])
         self.lin_v = eqx.nn.Linear(embed_dim, embed_dim, key=keys[4])
@@ -142,13 +145,20 @@ class AAEncoder(eqx.Module):
     def __call__(
         self,
         positions: Float[
-            Array, "N 50 2"
+            Array, "N t=50 xy=2"
         ],  # Full trajectories [Num_nodes, timesteps, xy]
-        bos_mask: Bool[Array, "N 20"],  # Shape: [Numnodes, timesteps]
-        t: Optional[int] = None,  # Optional[int]
-    ):
+        bos_mask: Bool[Array, "N t=20"],  # Shape: [Numnodes, timesteps]
+        padding_mask: Bool[Array, "N t=50"],  # Shape: [Numnodes, timesteps]
+        t: int
+    ) -> Float[Array, "N hidden_dim"]:
 
-        node_indices = jnp.arange(positions.shape[0])
+        assert t > 0, "t must be greater than 0"
+        node_indices = jnp.arange(0, positions.shape[0])
+
+        def f(idx):
+            return self.hub_spoke_nn(idx, positions, t, bos_mask, padding_mask)
+        
+        outputs = jax.vmap(f)(node_indices)
         # outputs = jax.vmap(
         #     lambda idx: self.hub_spoke_nn(
         #         idx=idx,
@@ -158,26 +168,34 @@ class AAEncoder(eqx.Module):
         #     )
         # )(node_indices) # Calls function for each node
         # Start with regular loop
-        outputs = []
-        for idx in node_indices:
-            outputs.append(self.hub_spoke_nn(idx, positions, t, bos_mask))
+        # outputs = []
+        # for idx in node_indices:
+        #     outputs.append(self.hub_spoke_nn(idx, positions, t, bos_mask))
         return outputs
 
+    #TODO make own classic nn
+
+    # Unit test example count number of neighbors, then computer avg distance
+    # Tell furthest neighbors
+
+    @beartype
     def hub_spoke_nn(
         self,
         idx: int,
-        positions: Float[Array, "N t=50 2"],
+        positions: Float[Array, "N t=50 xy=2"],
         t: int,
-        padding_mask: Bool[Array, "node 50"],
+        bos: Bool[Array, "N t=20"],
+        padding_mask: Bool[Array, "N t=50"],
     ) -> Float[Array, "hidden_dim"]:
 
-        if t < 1:
-            return jnp.zeros(positions.shape[0])
+        assert t > 0, "t must be greater than 0"
 
         dpositions = positions[:, t, :] - positions[:, t - 1, :]
 
-        adj_mat = self.create_adj_matrix(
-            positions[:, t, :], padding_mask[:, t]
+        mask = self.create_neighbor_mask(
+            idx,
+            positions[:, t, :],
+            padding_mask[:, t], bos[:, t]
         )  # Set all to true bool
 
         # 3. Get hub and spoke data
@@ -185,58 +203,66 @@ class AAEncoder(eqx.Module):
         node_dxy = dpositions[idx, :]  # hub vel
 
         rot_mat = jnp.eye(2)
-        neighbors_xy = positions[adj_mat[idx]]  # <--- spokes
-        neighbors_dxy = dpositions[adj_mat[idx]]
+
+        # Apply operations on dense matrix, then filter out during the attention step
+        neighbors_xy = positions[:, t, :]  # <--- spokes
+        neighbors_dxy = dpositions # If node has no neighbors, this may happen then handle that
 
         neighbors_xy = jax.vmap(lambda xy: xy - node_xy)(neighbors_xy)
         del node_xy  # Don't need node_xy any more. It should be (0,0)
-        node_dxy = node_dxy @ rot_mat
+        node_dxy = node_dxy @ rot_mat # Want to make sure we are rotating to nodexy coordinates
 
         neighbors_xy = jax.vmap(lambda n: n @ rot_mat)(neighbors_xy)
 
         center_embed = self._center_embed(node_dxy)
+        # Expand out by 1 element
+        center_embed = rearrange(center_embed, "d -> 1 d")
 
         nbr_embed = jax.vmap(lambda a, b: self._nbr_embed([a, b]))(
-            neighbors_xy[:, t, :], neighbors_dxy
+            neighbors_xy, neighbors_dxy
         )
-        print("nbr_embed", nbr_embed.shape)
-        print("nbr_embed", nbr_embed)
-        breakpoint()
 
-    def create_adj_matrix(
+        # MHA 
+        mha = self.attention(query=center_embed, key_=nbr_embed, value=nbr_embed, mask=mask)
+
+
+    def create_neighbor_mask(
         self,
+        idx: int,
         positions: Float[Array, "N 2"],  # positions
         padding_mask: Bool[Array, "N"],  # mask at current timestep
-    ) -> Bool[Array, "node node"]:
+        bos_mask: Bool[Array, "N"],  # mask at current timestep # Look closer later
+    ) -> Bool[Array, "1 N"]:
         """Creates adjacency matrix for nodes within max_radius and not padded."""
         # 1. Compute pairwise distances between all nodes
-        # Expand dimensions for broadcasting
-        pos_i = positions[:, None, :]  # [N, 1, 2]
-        pos_j = positions[None, :, :]  # [1, N, 2]
 
-        # Their difference gives [node, node, 2] representing vectors between all pairs
-        diff = pos_i - pos_j  # [N, N, 2]
+        
+        # # TODO build unit test for this
+        
+        rel_pos = positions[idx] - positions
 
-        # 2. Get actual distances between nodes
-        distances = jnp.sqrt(jnp.sum(diff**2, axis=-1))  # [node, node]
+        dist = jnp.linalg.norm(rel_pos, ord = 2, axis=1)
 
-        # 3. Create three mask conditions:
-        # a. Distance threshold
-        dist_mask = distances <= self.max_radius
+        dist_mask = dist <= self.max_radius
 
-        # b. Both nodes must be valid (not padded)
-        valid_mask = ~padding_mask[:, None] & ~padding_mask[None, :]
+        dist_mask = rearrange(dist_mask, "N -> 1 N")
 
-        # c. No self-connections
-        ### Set alll top true
-        no_self = ~jnp.eye(positions.shape[0], dtype=bool)
+        valid_mask = ~padding_mask
+
+        valid_mask = rearrange(valid_mask, "N -> 1 N")
+
+        self_connections = jnp.eye(1, positions.shape[0], dtype=bool)
 
         # 4. Combine all conditions
-        adj_mat = ~(dist_mask & valid_mask & no_self).astype(bool)
+        adj_mat = (dist_mask & valid_mask).astype(bool)
+        adj_mat |= self_connections
 
+        # Might want valid masks to happen later so i can throw away the padding at this point
         return adj_mat
 
     def compute_rotation_matrices(self, positions, padding_mask, adj_mat):
+        
+        # TODO build unit test for this
         pass
 
 

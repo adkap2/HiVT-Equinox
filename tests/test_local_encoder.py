@@ -179,6 +179,7 @@ def test_aa_encoder():
         'edge_index': edge_index_jax,
         'bos_mask': bos_mask_jax,
         'positions': positions_jax,
+        'padding_mask': padding_mask_jax,
     }
 
     eqx_output: jnp.ndarray = eqx_model(
