@@ -20,7 +20,7 @@ import random
 
 
 class ReLU(eqx.Module):
-    def __call__(self, x: Float[Array, "batch 8"], key=None):
+    def __call__(self, x: Float[Array, "batch=2 8"], key=None):
         output = jax.nn.relu(x)  # Float[Array, "batch 8"]
         return output
 
@@ -43,10 +43,10 @@ class MLP(eqx.Module):
     # @beartype
     def __call__(
         self, nodes, key  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
-    ) -> Float[Array, "2 2"]:  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
+    ) -> Float[Array, "batch=2 node_dim=2"]:  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
 
         key1, key2 = jax.random.split(key)
-        nodes = self.linear1(nodes)  # Float[Array, "batch 8"]
+        nodes = self.linear1(nodes)  # Float[Array, "batch=2 num_heads=8"]
 
         nodes = self.relu(nodes)  # Float[Array, "batch 8"]
 
@@ -141,7 +141,7 @@ class AAEncoder(eqx.Module):
         # TODO: Add initialization for the weights
         # self.apply(init_weights)
 
-    # @beartype
+    @beartype
     def __call__(
         self,
         positions: Float[
@@ -150,7 +150,7 @@ class AAEncoder(eqx.Module):
         bos_mask: Bool[Array, "N t=20"],  # Shape: [Numnodes, timesteps]
         padding_mask: Bool[Array, "N t=50"],  # Shape: [Numnodes, timesteps]
         t: int
-    ) -> Float[Array, "N hidden_dim"]:
+    )-> Float[Array, "N hidden_dim"]:
 
         assert t > 0, "t must be greater than 0"
         node_indices = jnp.arange(0, positions.shape[0])
@@ -159,18 +159,7 @@ class AAEncoder(eqx.Module):
             return self.hub_spoke_nn(idx, positions, t, bos_mask, padding_mask)
         
         outputs = jax.vmap(f)(node_indices)
-        # outputs = jax.vmap(
-        #     lambda idx: self.hub_spoke_nn(
-        #         idx=idx,
-        #         positions=positions,
-        #         t=t,
-        #         padding_mask=bos_mask,
-        #     )
-        # )(node_indices) # Calls function for each node
-        # Start with regular loop
-        # outputs = []
-        # for idx in node_indices:
-        #     outputs.append(self.hub_spoke_nn(idx, positions, t, bos_mask))
+
         return outputs
 
     #TODO make own classic nn
@@ -181,12 +170,12 @@ class AAEncoder(eqx.Module):
     @beartype
     def hub_spoke_nn(
         self,
-        idx: int,
+        idx: Int[Array, ""],
         positions: Float[Array, "N t=50 xy=2"],
         t: int,
         bos: Bool[Array, "N t=20"],
         padding_mask: Bool[Array, "N t=50"],
-    ) -> Float[Array, "hidden_dim"]:
+    )-> Float[Array, "hidden_dim"]:  # TODO complete function before adding this in
 
         assert t > 0, "t must be greater than 0"
 
@@ -222,13 +211,34 @@ class AAEncoder(eqx.Module):
             neighbors_xy, neighbors_dxy
         )
 
+        center_embed = jax.vmap(lambda x: self.norm1(x))(center_embed)
         # MHA 
         mha = self.attention(query=center_embed, key_=nbr_embed, value=nbr_embed, mask=mask)
 
+        inputs = rearrange(mha, "1 d -> d")
+        # Rearange center embed
+        center_embed = rearrange(center_embed, "1 d -> d")
+        gate = jax.nn.sigmoid(
+            self.lin_ih(inputs) + self.lin_hh(center_embed)
+        )
 
+        outputs = inputs + gate * (
+            self.lin_self(center_embed) - inputs
+        )
+        return outputs
+
+        # Add residual connection and layer norm
+        # Add gating mechanism
+        
+        # print(self.lin_ih(mha).shape)
+        # center_embed = center_embed + self.mlp(jax.vmap(lambda x: self.norm2(x))(mha), key=jax.random.PRNGKey(0))
+        # breakpoint()
+        # return mha
+
+    @beartype
     def create_neighbor_mask(
         self,
-        idx: int,
+        idx: Int[Array, ""],
         positions: Float[Array, "N 2"],  # positions
         padding_mask: Bool[Array, "N"],  # mask at current timestep
         bos_mask: Bool[Array, "N"],  # mask at current timestep # Look closer later
