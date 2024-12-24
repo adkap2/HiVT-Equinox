@@ -181,7 +181,7 @@ class AAEncoder(eqx.Module):
 
         dpositions = positions[:, t, :] - positions[:, t - 1, :]
 
-        rotate_matrix = self.create_rotation_matrix(dpositions)
+        rot_mat = self.compute_rotation_matrix(idx,dpositions)
 
         mask = self.create_neighbor_mask(
             idx,
@@ -192,8 +192,6 @@ class AAEncoder(eqx.Module):
         # 3. Get hub and spoke data
         node_xy = positions[idx, t, :]  # hub position
         node_dxy = dpositions[idx, :]  # hub vel
-
-        rot_mat = jnp.eye(2)
 
         # Apply operations on dense matrix, then filter out during the attention step
         neighbors_xy = positions[:, t, :]  # <--- spokes
@@ -272,22 +270,29 @@ class AAEncoder(eqx.Module):
         # Might want valid masks to happen later so i can throw away the padding at this point
         return adj_mat
 
-    def compute_rotation_matrices(self, 
+    def compute_rotation_matrix(self, 
+                                  idx: Int[Array, ""],
                                   dpositions: Float[Array, "N xy=2"],
-                                  )-> Float[Array, "N 2 2"]:
+                                  )-> Float[Array, "2 2"]:
         
-        # TODO build unit test for this
-        rotate_angles = jnp.arctan2(dpositions[:, 1], dpositions[:, 0])
-
-        sin_vals = jnp.sin(rotate_angles) # [N]
-        cos_vals = jnp.cos(rotate_angles) # [N]
-
-        # Create rotation matrices for each node
-        rotate_mat = jnp.zeros((dpositions.shape[0], 2, 2))
-        rotate_mat = rotate_mat.at[:, 0, 0].set(cos_vals)
-        rotate_mat = rotate_mat.at[:, 0, 1].set(-sin_vals)
-        rotate_mat = rotate_mat.at[:, 1, 0].set(sin_vals)
-        rotate_mat = rotate_mat.at[:, 1, 1].set(cos_vals)
+        
+        # Get displacement vector for the specific node
+        dpos = dpositions[idx]  # [2]
+        
+        # Compute rotation angle from displacement vector
+        rotate_angle = jnp.arctan2(dpos[1], dpos[0])  # scalar
+        
+        # Compute sin and cos values
+        sin_val = jnp.sin(rotate_angle)  # scalar
+        cos_val = jnp.cos(rotate_angle)  # scalar
+    
+        # Create rotation matrix for the single node
+        rotate_mat = jnp.zeros((2, 2))
+        rotate_mat = rotate_mat.at[0, 0].set(cos_val)
+        rotate_mat = rotate_mat.at[0, 1].set(-sin_val)
+        rotate_mat = rotate_mat.at[1, 0].set(sin_val)
+        rotate_mat = rotate_mat.at[1, 1].set(cos_val)
+        
         return rotate_mat
 
 
