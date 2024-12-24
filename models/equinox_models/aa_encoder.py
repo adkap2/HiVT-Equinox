@@ -181,6 +181,8 @@ class AAEncoder(eqx.Module):
 
         dpositions = positions[:, t, :] - positions[:, t - 1, :]
 
+        rotate_matrix = self.create_rotation_matrix(dpositions)
+
         mask = self.create_neighbor_mask(
             idx,
             positions[:, t, :],
@@ -270,10 +272,25 @@ class AAEncoder(eqx.Module):
         # Might want valid masks to happen later so i can throw away the padding at this point
         return adj_mat
 
-    def compute_rotation_matrices(self, positions, padding_mask, adj_mat):
+    def compute_rotation_matrices(self, 
+                                  dpositions: Float[Array, "N xy=2"],
+                                  )-> Float[Array, "N 2 2"]:
         
         # TODO build unit test for this
-        pass
+        rotate_angles = jnp.arctan2(dpositions[:, 1], dpositions[:, 0])
+
+        sin_vals = jnp.sin(rotate_angles) # [N]
+        cos_vals = jnp.cos(rotate_angles) # [N]
+
+        # Create rotation matrices for each node
+        rotate_mat = jnp.zeros((dpositions.shape[0], 2, 2))
+        rotate_mat = rotate_mat.at[:, 0, 0].set(cos_vals)
+        rotate_mat = rotate_mat.at[:, 0, 1].set(-sin_vals)
+        rotate_mat = rotate_mat.at[:, 1, 0].set(sin_vals)
+        rotate_mat = rotate_mat.at[:, 1, 1].set(cos_vals)
+        return rotate_mat
+
+
 
 
 # TODO write a function that creates an adjaceny matrix for time t it will then determine if padding mask is true or false. A node wont be connected if it is padded. Filter out things that are padding and things that are too far. This will tell us what are the hubs and spokes.
