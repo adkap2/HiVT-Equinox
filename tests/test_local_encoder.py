@@ -34,6 +34,9 @@ def test_aa_encoder():
     # num_nodes: int = 6
     num_nodes: int = 2
 
+
+    # rotate_angles[node_idx] = torch.atan2(heading_vector[1], heading_vector[0]) # Rotation Angle of the Nodes
+
     # Create rotation angles (one per actor)
     rotate_angles = torch.tensor([np.pi/4, -np.pi/6])  # example angles: 45° and -30°
 
@@ -96,15 +99,10 @@ def test_aa_encoder():
     # Calculate edge attributes (relative positions)
     edge_attr_torch = positions_torch[0][edge_index_torch[0]] - positions_torch[0][edge_index_torch[1]] # [2, 2]
     
-    # Convert to JAX
-    edge_index_jax = jnp.array(edge_index_torch.numpy()) # [2, 2]
-    edge_attr_jax = jnp.array(edge_attr_torch.numpy()) # [2, 2]
 
     padding_mask_torch: torch.Tensor = torch.ones(num_nodes, 50, dtype=torch.bool) # [N, 50] # Padding Mask
 
     
-
-
     edge_index_torch = torch.tensor([[0, 1], [1, 0]], dtype=torch.long) # [2, 2]
     # edge_attr_torch = torch.randn(edge_index_torch.shape[1], edge_dim)
     edge_attr_torch = torch.randn(
@@ -115,8 +113,6 @@ def test_aa_encoder():
     # edge_index_torch = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)  # Only connect nodes 0 and 1
     # edge_attr_torch = torch.randn(edge_index_torch.shape[1], edge_dim)  # Shape: [num_edges, edge_dim]
 
-    # bos_mask_torch: torch.Tensor = torch.zeros(batch_size, dtype=torch.bool) # [2]
-
     bos_mask_torch = torch.zeros((2, historical_steps), dtype=torch.bool)  # [num_nodes, timesteps]
     bos_mask_torch[0, :] = True  # First node is BOS at all timesteps
     # Create identical rotation matrices for both frameworks
@@ -125,7 +121,6 @@ def test_aa_encoder():
 
     # Convert to respective frameworks
     batch_rot_mat_torch: torch.Tensor = torch.tensor(np_rot_mat) # [2, 2, 2]
-    
     
     data = {
         'x': x_torch,
@@ -155,28 +150,15 @@ def test_aa_encoder():
         key=key,
     )
 
-    # print(eqx_model)
-    # breakpoint()
-
-    x_jax = x_torch.numpy() # Shape: [batch_size, node_dim] -> [2, 2]
-
-    eqx_batch_rot_mat: jnp.ndarray = jnp.array(batch_rot_mat_torch) # Shape: [batch_size, embed_dim, embed_dim] -> [2, 2, 2]
     bos_mask_jax: jnp.ndarray = jnp.array(bos_mask_torch.numpy()) # Shape: [batch_size] -> [2]
 
-    edge_index_jax = jnp.array(edge_index_torch.numpy()) # [2, 2]
-    edge_attr_jax = jnp.array(edge_attr_torch.numpy()) # [2, 2]
-
     positions_jax = jnp.array(positions_torch.numpy()) # [N, 50, 2]
-    print("positions_jax", positions_jax)
-    print("positions_jax shape", positions_jax.shape)
-    # breakpoint()
+
 
     padding_mask_jax = jnp.array(padding_mask_torch.numpy()) # [N, 50]
 
 
     data_jax = {
-        'edge_attr': edge_attr_jax,
-        'edge_index': edge_index_jax,
         'bos_mask': bos_mask_jax,
         'positions': positions_jax,
         'padding_mask': padding_mask_jax,
