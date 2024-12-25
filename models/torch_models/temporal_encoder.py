@@ -111,6 +111,14 @@ class TorchTemporalEncoderLayer(nn.Module):
         x = self.self_attn(x, x, x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, need_weights=False)[0]
         return self.dropout1(x)
 
-    def _ff_block(self, x: torch.Tensor) -> torch.Tensor:
+    def _ff_block(self,
+                   x: torch.Tensor # Shape: [historical_steps+1=21 nodes=2 xy=2]
+                   ) -> torch.Tensor: # Shape: [historical_steps+1=21 nodes=2 xy=2]
         x = self.linear2(self.dropout(F.relu_(self.linear1(x))))
+
         return self.dropout2(x)
+    
+
+
+
+
