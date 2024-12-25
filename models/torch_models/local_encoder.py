@@ -30,6 +30,7 @@ from utils.torch.torch_utils import DistanceDropEdge
 # from models import MultipleInputEmbedding
 from .embedding import TorchSingleInputEmbedding, TorchMultipleInputEmbedding
 from .aa_encoder import TorchAAEncoder
+from .temporal_encoder import TorchTemporalEncoder
 # from utils import DistanceDropEdge
 # from utils import TemporalData
 # from utils import init_weights
@@ -44,7 +45,7 @@ class LocalEncoder(nn.Module):
                  embed_dim: int,
                  num_heads: int = 8,
                  dropout: float = 0.1,
-                #  num_temporal_layers: int = 4,
+                 num_temporal_layers: int = 4,
                  local_radius: float = 50,
                  parallel: bool = False) -> None:
         super(LocalEncoder, self).__init__()
@@ -58,11 +59,11 @@ class LocalEncoder(nn.Module):
                                     embed_dim=embed_dim,
                                     num_heads=num_heads,
                                     dropout=dropout,)
-        # self.temporal_encoder = TemporalEncoder(historical_steps=historical_steps,
-        #                                         embed_dim=embed_dim,
-        #                                         num_heads=num_heads,
-        #                                         dropout=dropout,
-        #                                         num_layers=num_temporal_layers)
+        self.temporal_encoder = TorchTemporalEncoder(historical_steps=historical_steps,
+                                                embed_dim=embed_dim,
+                                                num_heads=num_heads,
+                                                dropout=dropout,
+                                                num_layers=num_temporal_layers)
         # self.al_encoder = ALEncoder(node_dim=node_dim,
         #                             edge_dim=edge_dim,
         #                             embed_dim=embed_dim,
@@ -101,8 +102,13 @@ class LocalEncoder(nn.Module):
             out[t] = self.aa_encoder(x=data['x'][:, t], t=t, edge_index=edge_index, edge_attr=edge_attr,
                                         bos_mask=data['bos_mask'][:, t], rotate_mat=data['rotate_mat'])
 
+
+        # print("Stackinh out")
+        # breakpoint()
         out = torch.stack(out)  # [T, N, D]
-        # out = self.temporal_encoder(x=out, padding_mask=data['padding_mask'][:, : self.historical_steps])
+        # print("Preparing for temporal encoder")
+        # breakpoint()
+        out = self.temporal_encoder(x=out, padding_mask=data['padding_mask'][:, : self.historical_steps])
         # edge_index, edge_attr = self.drop_edge(data['lane_actor_index'], data['lane_actor_vectors'])
         # out = self.al_encoder(x=(data['lane_vectors'], out), edge_index=edge_index, edge_attr=edge_attr,
         #                       is_intersections=data['is_intersections'], turn_directions=data['turn_directions'],
