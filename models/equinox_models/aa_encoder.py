@@ -9,12 +9,9 @@ from einops import rearrange, reduce
 
 # Import beartype
 from beartype import beartype
-import typing
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple, Optional
 
-import numpy as np
 from utils import print_array_type
-import random
 
 # Add jax type signature to inputs and outputs
 
@@ -61,15 +58,10 @@ class AAEncoder(eqx.Module):
     _center_embed: SingleInputEmbedding
     _nbr_embed: MultipleInputEmbedding
     attention: eqx.nn.MultiheadAttention
-    lin_q: eqx.nn.Linear
-    lin_k: eqx.nn.Linear
-    lin_v: eqx.nn.Linear
     lin_self: eqx.nn.Linear
     attn_dropout: float
     lin_ih: eqx.nn.Linear
     lin_hh: eqx.nn.Linear
-    out_proj: eqx.nn.Linear
-    proj_drop: float
     # Layer Norms
     norm1: eqx.nn.LayerNorm
     norm2: eqx.nn.LayerNorm
@@ -98,7 +90,6 @@ class AAEncoder(eqx.Module):
         keys = jax.random.split(key, 12)
 
         self.max_radius = 50
-        # print(f"keys shape: {keys.shape}")
         self.historical_steps = historical_steps
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -109,30 +100,26 @@ class AAEncoder(eqx.Module):
             in_channels=[node_dim, edge_dim], out_channel=embed_dim, key=keys[1]
         )
 
-        self.attention = eqx.nn.MultiheadAttention(num_heads=self.num_heads, query_size=self.embed_dim, key=jax.random.PRNGKey(0))
+        self.attention = eqx.nn.MultiheadAttention(num_heads=self.num_heads, query_size=self.embed_dim, key = keys[2])
 
-        self.lin_q = eqx.nn.Linear(embed_dim, embed_dim, key=keys[2])
-        self.lin_k = eqx.nn.Linear(embed_dim, embed_dim, key=keys[3])
-        self.lin_v = eqx.nn.Linear(embed_dim, embed_dim, key=keys[4])
-        self.lin_self = eqx.nn.Linear(embed_dim, embed_dim, key=keys[5])
+        self.lin_self = eqx.nn.Linear(embed_dim, embed_dim, key=keys[3])
         self.attn_dropout = eqx.nn.Dropout(dropout)
 
-        self.lin_ih = eqx.nn.Linear(embed_dim, embed_dim, key=keys[6])
-        self.lin_hh = eqx.nn.Linear(embed_dim, embed_dim, key=keys[7])
-        self.out_proj = eqx.nn.Linear(embed_dim, embed_dim, key=keys[8])
-        self.proj_drop = eqx.nn.Dropout(dropout)
+        self.lin_ih = eqx.nn.Linear(embed_dim, embed_dim, key=keys[4])
+        self.lin_hh = eqx.nn.Linear(embed_dim, embed_dim, key=keys[5])
+
 
         self.norm1 = eqx.nn.LayerNorm(embed_dim)
         self.norm2 = eqx.nn.LayerNorm(embed_dim)
 
-        self.mlp = MLP(embed_dim, dropout, keys[9:11])
+        self.mlp = MLP(embed_dim, dropout, keys[6:8])
 
         # Key differences from PyTorch:
         # Uses jnp.ndarray instead of torch.Tensor
         # Initialization is explicit using JAX's random number generator
         # No need for nn.Parameter as Equinox automatically treats array attributes as parameters
         # Initialize BOS token with random values
-        bos_key = jax.random.fold_in(keys[11], 0)  # PRNGKeyArray[Array, "2"]
+        bos_key = jax.random.fold_in(keys[8], 0)  # PRNGKeyArray[Array, "2"]
         self.bos_token = (
             jax.random.normal(bos_key, shape=(self.historical_steps, self.embed_dim))
             * 0.02
@@ -201,6 +188,30 @@ class AAEncoder(eqx.Module):
         del node_xy  # Don't need node_xy any more. It should be (0,0)
         node_dxy = node_dxy @ rot_mat # Want to make sure we are rotating to nodexy coordinates
 
+        # Check rotation matrix properties
+        print("rot_mat", rot_mat)
+        print("rot_mat @ rot_mat.T", rot_mat @ rot_mat.T)
+        print("jnp.eye(2)", jnp.eye(2))
+        print("jnp.linalg.det(rot_mat)", jnp.linalg.det(rot_mat))
+
+        # Check coordinate transformations
+        print("Neighbor positions after translation:", neighbors_xy)  # Should be relative to hub
+        print("Hub velocity after rotation:", node_dxy @ rot_mat)
+        print("Sample neighbor after rotation:", neighbors_xy[0] @ rot_mat)  # Look at first neighbor
+
+        # Expected properties:
+        # 1. rot_mat @ rot_mat.T should be very close to eye(2)
+        # 2. determinant should be very close to 1.0
+        # 3. hub position after translation should be (0,0)
+        # 4. distances between points should remain the same after rotation
+
+        # You can also check distances are preserved:
+        original_distances = jnp.linalg.norm(neighbors_xy, axis=-1)
+        rotated_distances = jnp.linalg.norm(neighbors_xy @ rot_mat, axis=-1)
+        print("Original distances:", original_distances)
+        print("Distances after rotation:", rotated_distances)  # Should be the same as original
+
+
         neighbors_xy = jax.vmap(lambda n: n @ rot_mat)(neighbors_xy)
 
         center_embed = self._center_embed(node_dxy)
@@ -222,18 +233,18 @@ class AAEncoder(eqx.Module):
             self.lin_ih(inputs) + self.lin_hh(center_embed)
         )
 
-        outputs = inputs + gate * (
+        center_embed = inputs + gate * (
             self.lin_self(center_embed) - inputs
-        )
-        return outputs
+        ) # Shape: [hidden_dim = 2]
 
-        # Add residual connection and layer norm
-        # Add gating mechanism
-        
-        # print(self.lin_ih(mha).shape)
-        # center_embed = center_embed + self.mlp(jax.vmap(lambda x: self.norm2(x))(mha), key=jax.random.PRNGKey(0))
-        # breakpoint()
-        # return mha
+        center_embed = self.norm2(center_embed)
+
+        ff_output = self.mlp(center_embed, key=jax.random.PRNGKey(0))
+
+        center_embed = center_embed + ff_output
+
+        return center_embed
+
 
     @beartype
     def create_neighbor_mask(

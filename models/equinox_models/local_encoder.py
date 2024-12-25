@@ -96,6 +96,7 @@ class LocalEncoder(eqx.Module):
             #     data["positions"][data[f"edge_index_{t}"][0], t]
             #     - data["positions"][data[f"edge_index_{t}"][1], t]
             # )
+            # TODO this is done in the neighbor mask now
 
         # Process each timestep
         outputs = []
