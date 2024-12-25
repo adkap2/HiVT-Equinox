@@ -33,7 +33,7 @@ def test_aa_encoder():
 
     # num_nodes: int = 6
     num_nodes: int = 2
-
+    num_temporal_layers: int = 4
 
     # rotate_angles[node_idx] = torch.atan2(heading_vector[1], heading_vector[0]) # Rotation Angle of the Nodes
 
@@ -94,7 +94,11 @@ def test_aa_encoder():
                                    [1, 0]])    # Target nodes
     
     # Create positions for 2 nodes over 1 timestep
-    positions_torch = x_torch.clone()
+    positions_torch = x_torch.clone() # Shape: [num_nodes = 2, total_steps = 50, xy = 2]
+
+    y_torch = x_torch[:, historical_steps:] # Shape: [num_nodes = 2, future_steps = 30, xy = 2]
+    x_torch = x_torch[:, : historical_steps] # Shape: [num_nodes = 2, historical_steps = 20, xy = 2]
+    
     
     # Calculate edge attributes (relative positions)
     edge_attr_torch = positions_torch[0][edge_index_torch[0]] - positions_torch[0][edge_index_torch[1]] # [2, 2]
@@ -121,16 +125,16 @@ def test_aa_encoder():
 
     # Convert to respective frameworks
     batch_rot_mat_torch: torch.Tensor = torch.tensor(np_rot_mat) # [2, 2, 2]
-    
+
     data = {
-        'x': x_torch,
+        'positions': positions_torch,  # Shape: [num_nodes = 2, total_steps = 50, xy = 2]
         'edge_index': edge_index_torch,
         'edge_attr': edge_attr_torch,
         'bos_mask': bos_mask_torch,
         'rotate_mat': batch_rot_mat_torch,
-        'positions': positions_torch,
         'padding_mask': padding_mask_torch,
-
+        'x': x_torch,
+        'y': y_torch,
     }
 
 
@@ -148,6 +152,7 @@ def test_aa_encoder():
         num_heads=num_heads,
         dropout=dropout,
         key=key,
+        num_temporal_layers=num_temporal_layers,
     )
 
     bos_mask_jax: jnp.ndarray = jnp.array(bos_mask_torch.numpy()) # Shape: [batch_size] -> [2]

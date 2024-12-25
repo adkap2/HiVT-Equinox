@@ -7,12 +7,13 @@ from beartype import beartype
 from .aa_encoder import AAEncoder
 from utils.equinox.equinox_utils import DistanceDropEdge
 from utils.equinox.graph_utils import subgraph
-
+from .temporal_encoder import TemporalEncoder
 
 class LocalEncoder(eqx.Module):
     """Local encoder module using Equinox."""
 
     historical_steps: int
+    num_temporal_layers: int
     node_dim: int
     edge_dim: int
     embed_dim: int
@@ -22,6 +23,7 @@ class LocalEncoder(eqx.Module):
 
     drop_edge: DistanceDropEdge
     aa_encoder: AAEncoder
+    temporal_encoder: TemporalEncoder
 
     def __init__(
         self,
@@ -32,6 +34,7 @@ class LocalEncoder(eqx.Module):
         num_heads: int = 8,
         dropout: float = 0.1,
         local_radius: float = 50,
+        num_temporal_layers: int = 4,
         *,
         key: jax.random.PRNGKey,
     ) -> None:
@@ -55,7 +58,7 @@ class LocalEncoder(eqx.Module):
         self.num_heads = num_heads
         self.dropout = dropout
         self.local_radius = local_radius
-
+        self.num_temporal_layers = num_temporal_layers
         # Split key for different components
         k1, k2 = jax.random.split(key)
 
@@ -68,7 +71,7 @@ class LocalEncoder(eqx.Module):
             num_heads=num_heads,
             key=k2,
         )
-
+        self.temporal_encoder = TemporalEncoder(historical_steps=historical_steps, embed_dim=embed_dim, num_heads=num_heads, num_layers=num_temporal_layers, dropout=dropout, key=k2)
     # @beartype
     def __call__(
         self, data: dict, *, key: Optional[jax.random.PRNGKey] = None
@@ -111,4 +114,11 @@ class LocalEncoder(eqx.Module):
         # Can all be done with vmap over the time dimension
 
         # Stack outputs along time dimension
-        return jnp.stack(outputs)  # [T, N, D]
+        out = jnp.stack(outputs)  # [T, N, D] -> [historical_steps = 20 - 1, num_nodes = 2, xy = 2]
+
+        print("Collected EQXoutputs")
+        out = self.temporal_encoder(out, data["padding_mask"])
+        # breakpoint()
+        return out
+
+
