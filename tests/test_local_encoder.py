@@ -86,9 +86,6 @@ def test_aa_encoder():
         theta = t * np.pi / 20  # circular trajectory
         x_torch[1, t] = torch.tensor([np.cos(theta), np.sin(theta)])
 
-    # print("Input tensor shape:", x_torch.shape)
-    # print("First actor's trajectory:\n", x_torch[0])
-    # print("Second actor's trajectory:\n", x_torch[1])
 
     edge_index_torch = torch.tensor([[0, 1],   # Source nodes
                                    [1, 0]])    # Target nodes

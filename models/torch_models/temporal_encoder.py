@@ -47,16 +47,16 @@ class TorchTemporalEncoder(nn.Module):
         self.cls_token = nn.Parameter(torch.Tensor(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.Tensor(historical_steps + 1, 1, embed_dim))
         attn_mask = self.generate_square_subsequent_mask(historical_steps + 1)
-        self.register_buffer('attn_mask', attn_mask)
+        self.register_buffer('attn_mask', attn_mask) # I am pretty sure i dont need to woryr about this
         nn.init.normal_(self.padding_token, mean=0., std=.02)
         nn.init.normal_(self.cls_token, mean=0., std=.02)
         nn.init.normal_(self.pos_embed, mean=0., std=.02)
         # self.apply(init_weights)
 
     def forward(self,
-                x: torch.Tensor, # Shape: [historical_steps = 20, batch_size = 2, embed_dim = 2]
-                padding_mask: torch.Tensor) -> torch.Tensor:
-
+                x: torch.Tensor, # Shape: [historical_steps = 20, num_nodes = 2, xy = 2]
+                padding_mask: torch.Tensor, # Shape: [xy=2, historical_steps = 20]
+                ) -> torch.Tensor:
 
         padding_mask_transformed = rearrange(padding_mask, 'batch time -> time batch 1')
         x = torch.where(padding_mask_transformed, self.padding_token, x)
@@ -92,14 +92,17 @@ class TorchTemporalEncoderLayer(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
 
     def forward(self,
-                src: torch.Tensor,
-                src_mask: Optional[torch.Tensor] = None,
+                src: torch.Tensor, # Float[torch.Tensor, "historical_steps+1=21 num_nodes=2 xy=2"]
+                src_mask: Optional[torch.Tensor] = None, # Float[torch.Tensor, "historical_steps+1=21 historical_steps+1=21"]
                 src_key_padding_mask: Optional[torch.Tensor] = None,
                 **kwargs) -> torch.Tensor:
         
+
         src_mask = kwargs.get('src_mask', None)
 
         x = src
+
+
         x = x + self._sa_block(self.norm1(x), src_mask, src_key_padding_mask)
         x = x + self._ff_block(self.norm2(x))
         return x
