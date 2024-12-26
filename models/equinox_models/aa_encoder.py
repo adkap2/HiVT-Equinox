@@ -188,16 +188,16 @@ class AAEncoder(eqx.Module):
         del node_xy  # Don't need node_xy any more. It should be (0,0)
         node_dxy = node_dxy @ rot_mat # Want to make sure we are rotating to nodexy coordinates
 
-        # Check rotation matrix properties
-        print("rot_mat", rot_mat)
-        print("rot_mat @ rot_mat.T", rot_mat @ rot_mat.T)
-        print("jnp.eye(2)", jnp.eye(2))
-        print("jnp.linalg.det(rot_mat)", jnp.linalg.det(rot_mat))
+        # # Check rotation matrix properties
+        # print("rot_mat", rot_mat)
+        # print("rot_mat @ rot_mat.T", rot_mat @ rot_mat.T)
+        # print("jnp.eye(2)", jnp.eye(2))
+        # print("jnp.linalg.det(rot_mat)", jnp.linalg.det(rot_mat))
 
-        # Check coordinate transformations
-        print("Neighbor positions after translation:", neighbors_xy)  # Should be relative to hub
-        print("Hub velocity after rotation:", node_dxy @ rot_mat)
-        print("Sample neighbor after rotation:", neighbors_xy[0] @ rot_mat)  # Look at first neighbor
+        # # Check coordinate transformations
+        # print("Neighbor positions after translation:", neighbors_xy)  # Should be relative to hub
+        # print("Hub velocity after rotation:", node_dxy @ rot_mat)
+        # print("Sample neighbor after rotation:", neighbors_xy[0] @ rot_mat)  # Look at first neighbor
 
         # Expected properties:
         # 1. rot_mat @ rot_mat.T should be very close to eye(2)
@@ -208,8 +208,8 @@ class AAEncoder(eqx.Module):
         # You can also check distances are preserved:
         original_distances = jnp.linalg.norm(neighbors_xy, axis=-1)
         rotated_distances = jnp.linalg.norm(neighbors_xy @ rot_mat, axis=-1)
-        print("Original distances:", original_distances)
-        print("Distances after rotation:", rotated_distances)  # Should be the same as original
+        # print("Original distances:", original_distances)
+        # print("Distances after rotation:", rotated_distances)  # Should be the same as original
 
 
         neighbors_xy = jax.vmap(lambda n: n @ rot_mat)(neighbors_xy)

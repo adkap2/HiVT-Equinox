@@ -115,9 +115,12 @@ class LocalEncoder(eqx.Module):
 
         # Stack outputs along time dimension
         out = jnp.stack(outputs)  # [T, N, D] -> [historical_steps = 20 - 1, num_nodes = 2, xy = 2]
+        zero_pad = jnp.zeros((1,) + out.shape[1:]) # [1, num_nodes = 2, xy = 2]
+        out = jnp.concatenate([zero_pad, out], axis=0) # [historical_steps = 20, num_nodes = 2, xy = 2]
 
-        print("Collected EQXoutputs")
-        out = self.temporal_encoder(out, data["padding_mask"])
+
+
+        out = self.temporal_encoder(x=out, padding_mask=data["padding_mask"][:, : self.historical_steps])
         # breakpoint()
         return out
 
