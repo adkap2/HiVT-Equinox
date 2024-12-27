@@ -53,21 +53,23 @@ class TemporalEncoder(eqx.Module):
         self.encoder_layer = EquinoxTemporalEncoderLayer(embed_dim=self.embed_dim, num_heads=self.num_heads, dropout=self.dropout)
 
         self.transformer_encoder = TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=self.num_layers, norm=eqx.nn.LayerNorm(self.embed_dim))
-        self.padding_token = jax.random.normal(keys[0], (historical_steps, 1, self.embed_dim))
-        self.cls_token = jax.random.normal(keys[1], (1, 1, self.embed_dim))
-        self.pos_embed = jax.random.normal(keys[2], (historical_steps + 1, 1, self.embed_dim))
-        self.attn_mask = self.generate_square_subsequent_mask(historical_steps + 1)
-
+        self.padding_token = jax.random.normal(keys[0], (historical_steps, 1, self.embed_dim)) # [historical_steps=20, 1, embed_dim=2]
+        self.cls_token = jax.random.normal(keys[1], (1, 1, self.embed_dim)) # [1, 1, embed_dim=2]
+        self.pos_embed = jax.random.normal(keys[2], (historical_steps + 1, 1, self.embed_dim)) # [historical_steps+1=21, 1, embed_dim=2]    
+        print("Calling generate_square_subsequent_mask")
+        self.attn_mask = self.generate_square_subsequent_mask(historical_steps + 1) # [historical_steps+1=21, historical_steps+1=21]
+        #TODO Add INIT weights
 
         
     def __call__(self, x: jnp.ndarray, # [historical_steps=20, num_nodes=2, xy=2]
-                  padding_mask: jnp.ndarray,
+                  padding_mask: jnp.ndarray, # [num_nodes=2, historical_steps=20]
                     *, key: Optional[PRNGKeyArray] = None):
+        
         padding_mask_transformed = rearrange(padding_mask, 'batch time -> time batch 1')
         x = jnp.where(padding_mask_transformed, self.padding_token, x)
-        expand_cls_token = repeat(self.cls_token, '1 1 d -> 1 b d', b=x.shape[1])
-        x = jnp.concatenate([x, expand_cls_token], axis=0)
-        x = x + self.pos_embed
+        expand_cls_token = repeat(self.cls_token, '1 1 d -> 1 batch d', batch=x.shape[1]) # [1, num_nodes=2, embed_dim=2]
+        x = jnp.concatenate([x, expand_cls_token], axis=0) # [historical_steps+1=21, num_nodes=2, embed_dim=2]
+        x = x + self.pos_embed # [historical_steps+1=21, num_nodes=2, embed_dim=2]
         # out = self.transformer_encoder(x=x, mask=self.attn_mask, key=key, src_key_padding_mask=None)
         # Vmap the entire transformer encoder
         vmapped_transformer_encoder = jax.vmap(
@@ -81,17 +83,16 @@ class TemporalEncoder(eqx.Module):
             out_axes=1
         )
         out = vmapped_transformer_encoder(x)
-        return out[-1]
+        return out[-1] # [num_nodes=2, embed_dim=2]
     
-    def generate_square_subsequent_mask(self, seq_len: int) -> jnp.ndarray:
+    @staticmethod
+    def generate_square_subsequent_mask(seq_len: int) -> jnp.ndarray:
         # Create initial mask where 1s are in upper triangle (including diagonal)
         mask = (jnp.triu(jnp.ones((seq_len, seq_len))) == 1).transpose(0, 1)
-        
         # Convert to float and replace:
         # - False (0) becomes -inf
         # - True (1) becomes 0.0
         mask = jnp.where(mask, 0.0, float('-inf'))
-        
         return mask
 
 
@@ -128,12 +129,11 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
 
 
     def __call__(self, src: jnp.ndarray, # [historical_steps+1=21, xy=2]
-                  src_mask: Optional[jnp.ndarray] = None, # [historical_steps+1=21, historical_steps+1=21]
+                  src_mask: jnp.ndarray = None, # [historical_steps+1=21, historical_steps+1=21]
                   src_key_padding_mask: Optional[jnp.ndarray] = None,
                     *, 
                     key: Optional[jax.random.PRNGKey] = None,
                     ) -> jnp.ndarray:
-        
         x = src
         # Vmap LayerNorm over sequence dimension
         vmapped_norm1 = jax.vmap(self.norm1)
@@ -151,7 +151,6 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
                     ) -> jnp.ndarray:
 
         keys = jax.random.split(key, 2)
-
 
         x = self.self_attn(query=x,
                             key_=x,
@@ -182,7 +181,7 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
         x = self.dropout0(x, key=key1)
         x = vmapped_linear2(x)  # [21, 2, 2]
         x = self.dropout2(x, key=key2)
-        
+                
         return x
                 
         
@@ -221,7 +220,7 @@ class TransformerEncoder(eqx.Module):
     def __call__(
         self,
         x: jnp.ndarray, # [historical_steps=20, xy=2]
-        mask: Optional[jnp.ndarray] = None,
+        mask: jnp.ndarray = None,
         src_key_padding_mask: Optional[jnp.ndarray] = None,
         *,
         key: Optional[jax.random.PRNGKey] = None,

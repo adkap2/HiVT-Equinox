@@ -63,7 +63,6 @@ class TorchTemporalEncoder(nn.Module):
         # expand_cls_token = self.cls_token.expand(-1, x.shape[1], -1)
         expand_cls_token = repeat(self.cls_token, '1 1 d -> 1 b d', b=x.shape[1])
         x = torch.cat((x, expand_cls_token), dim=0) # Shape [historical_steps+1=21 nodes=2 xy=2] # Easier to just use torch.cat and add the cls token to the end
-        # breakpoint()
         x = x + self.pos_embed # Shape [historical_steps+1=21 nodes=2 xy=2]
         out = self.transformer_encoder(src=x, mask=self.attn_mask, src_key_padding_mask=None, is_causal=False)
         return out[-1]  # [N, D]
@@ -111,6 +110,7 @@ class TorchTemporalEncoderLayer(nn.Module):
                   x: torch.Tensor,
                   attn_mask: Optional[torch.Tensor],
                   key_padding_mask: Optional[torch.Tensor]) -> torch.Tensor:
+        # Note the key padding mask is None anyways
         x = self.self_attn(x, x, x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, need_weights=False)[0]
         return self.dropout1(x)
 
@@ -118,7 +118,6 @@ class TorchTemporalEncoderLayer(nn.Module):
                    x: torch.Tensor # Shape: [historical_steps+1=21 nodes=2 xy=2]
                    ) -> torch.Tensor: # Shape: [historical_steps+1=21 nodes=2 xy=2]
         x = self.linear2(self.dropout(F.relu_(self.linear1(x))))
-
         return self.dropout2(x)
     
 
