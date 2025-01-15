@@ -56,7 +56,6 @@ class TemporalEncoder(eqx.Module):
         self.padding_token = jax.random.normal(keys[0], (historical_steps, 1, self.embed_dim)) # [historical_steps=20, 1, embed_dim=2]
         self.cls_token = jax.random.normal(keys[1], (1, 1, self.embed_dim)) # [1, 1, embed_dim=2]
         self.pos_embed = jax.random.normal(keys[2], (historical_steps + 1, 1, self.embed_dim)) # [historical_steps+1=21, 1, embed_dim=2]    
-        print("Calling generate_square_subsequent_mask")
         self.attn_mask = self.generate_square_subsequent_mask(historical_steps + 1) # [historical_steps+1=21, historical_steps+1=21]
         #TODO Add INIT weights
 

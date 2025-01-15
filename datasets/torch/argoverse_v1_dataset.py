@@ -97,22 +97,22 @@ def process_argoverse(split: str,
     # breakpoint()
 
     # filter out actors that are unseen during the historical time steps
-    timestamps: List[int] = list(np.sort(df['TIMESTAMP'].unique())) # [Time_Steps] 
+    timestamps: List[int] = list(np.sort(df['TIMESTAMP'].unique())) # [Time_Steps] # There are multiple datapoints for the same timestamp as each one represents a different object/vehicle
     # print("timestamps", timestamps)
     # breakpoint()
-    historical_timestamps: List[int] = timestamps[: 20] # [Historical_T]
+    historical_timestamps: List[int] = timestamps[: 20] # [Historical_T] # Everything up to index 20. SO evertthing before 20 is in the past 
     # print("historical_timestamps", historical_timestamps)
     # breakpoint()
     historical_df: pd.DataFrame = df[df['TIMESTAMP'].isin(historical_timestamps)] # [Historical_N, Historical_T] # Historical Dataframe
     # print("historical_df", historical_df.head())
     # breakpoint()
-    actor_ids: List[int] = list(historical_df['TRACK_ID'].unique()) # [N] # Unique actor IDs
+    actor_ids: List[int] = list(historical_df['TRACK_ID'].unique()) # [N] # Unique actor IDs # This could be other vehicles
     # print("actor_ids", actor_ids)
     # breakpoint()
-    df: pd.DataFrame = df[df['TRACK_ID'].isin(actor_ids)] # [N, T] # Dataframe # Number of Nodes Time Steps
+    df: pd.DataFrame = df[df['TRACK_ID'].isin(actor_ids)] # [N, T] # Dataframe # Number of Nodes Time Steps 
     num_nodes: int = len(actor_ids)
 
-    av_df  = df[df['OBJECT_TYPE'] == 'AV'].iloc # av_df <pandas.core.indexing._iLocIndexer object at 0x314513860>
+    av_df  = df[df['OBJECT_TYPE'] == 'AV'].iloc # av_df <pandas.core.indexing._iLocIndexer object at 0x314513860> # Focus on only AV object
     # print("av_df", av_df)
     # breakpoint()
     av_index: int = actor_ids.index(av_df[0]['TRACK_ID']) # Index of the AV in the actor_ids list
@@ -127,22 +127,22 @@ def process_argoverse(split: str,
     city: str = df['CITY_NAME'].values[0] # City Name
 
     # make the scene centered at AV
-    origin: torch.Tensor  = torch.tensor([av_df[19]['X'], av_df[19]['Y']], dtype=torch.float) # [2] # Origin of the Scene
+    origin: torch.Tensor  = torch.tensor([av_df[19]['X'], av_df[19]['Y']], dtype=torch.float) # [2] # Origin of the Scene # We start at timestep 20 which we will get xy coordinates as origin
     # print("origin", origin)
     # breakpoint()
-    av_heading_vector: torch.Tensor = origin - torch.tensor([av_df[18]['X'], av_df[18]['Y']], dtype=torch.float) # [2] # Heading Vector of the AV
+    av_heading_vector: torch.Tensor = origin - torch.tensor([av_df[18]['X'], av_df[18]['Y']], dtype=torch.float) # [2] # Heading Vector of the AV Take the difference in trajectory from last xy to current xy at the 20th timestep
     # print("av_heading_vector", av_heading_vector)
     # breakpoint()
-    theta: torch.Tensor = torch.atan2(av_heading_vector[1], av_heading_vector[0]) # [1] # Rotation Angle of the Scene
+    theta: torch.Tensor = torch.atan2(av_heading_vector[1], av_heading_vector[0]) # [1] # Rotation Angle of the Scene # Get the angle 
     # print("theta", theta)
     # breakpoint()
     rotate_mat: torch.Tensor  = torch.tensor([[torch.cos(theta), -torch.sin(theta)],
-                               [torch.sin(theta), torch.cos(theta)]]) # [2, 2] # Rotation Matrix 
+                               [torch.sin(theta), torch.cos(theta)]]) # [2, 2] # Rotation Matrix # This is the rotation matrix that all neighbors need to be rotated to to be aligned with coordinate from of AV Vehicle
     # print("rotate_mat", rotate_mat)
     # breakpoint()
 
     # initialization
-    x: torch.Tensor = torch.zeros(num_nodes, 50, 2,  dtype=torch.float) # [N, 50, 2] # Position of the Nodes
+    x: torch.Tensor = torch.zeros(num_nodes, 50, 2,  dtype=torch.float) # [N, 50, 2] # Position of the Nodes Looking at total of 50 timesteps, 20 prior and 30 ahead and xy dim=2
     # print("x", x) 
     # breakpoint()
     edge_index: torch.Tensor = torch.LongTensor(list(permutations(range(num_nodes), 2))).t().contiguous() # [2, E] # Edge Index where E is the number of edges
@@ -151,7 +151,7 @@ def process_argoverse(split: str,
     padding_mask: torch.Tensor = torch.ones(num_nodes, 50, dtype=torch.bool) # [N, 50] # Padding Mask
     # print("padding_mask", padding_mask)
     # breakpoint()
-    bos_mask: torch.Tensor = torch.zeros(num_nodes, 20, dtype=torch.bool) # [N, 20] # Beginning of Sequence Mask
+    bos_mask: torch.Tensor = torch.zeros(num_nodes, 20, dtype=torch.bool) # [N, 20] # Beginning of Sequence Mask # First 20 timesteps 
     rotate_angles: torch.Tensor = torch.zeros(num_nodes, dtype=torch.float) # [N] # Rotation Angles of the Nodes
 
     for actor_id, actor_df in df.groupby('TRACK_ID'):
@@ -162,7 +162,7 @@ def process_argoverse(split: str,
             padding_mask[node_idx, 20:] = True
         xy = torch.from_numpy(np.stack([actor_df['X'].values, actor_df['Y'].values], axis=-1)).float()
         x[node_idx, node_steps] = torch.matmul(xy - origin, rotate_mat) # Matrix Multiplication of the Position of the Nodes and the Rotation Matrix
-        node_historical_steps = list(filter(lambda node_step: node_step < 20, node_steps))
+        node_historical_steps = list(filter(lambda node_step: node_step < 20, node_steps)) #   I think this filters out the node steps less than 20 and only looks at the ones greater or equal to 20
         
         # Calculate the Rotation Angle of the Nodes
         # At every time step, the rotation angle is the angle between the heading vector of the nodes from the last two time steps
@@ -171,7 +171,7 @@ def process_argoverse(split: str,
             heading_vector = x[node_idx, node_historical_steps[-1]] - x[node_idx, node_historical_steps[-2]] # Heading Vector of the Nodes from the last two time steps
             rotate_angles[node_idx] = torch.atan2(heading_vector[1], heading_vector[0]) # Rotation Angle of the Nodes
         else:  # make no predictions for the actor if the number of valid time steps is less than 2
-            padding_mask[node_idx, 20:] = True
+            padding_mask[node_idx, 20:] = True # Just put padding in that location and ignore it
 
     # bos_mask is True if time step t is valid and time step t-1 is invalid
     bos_mask[:, 0] = ~padding_mask[:, 0]

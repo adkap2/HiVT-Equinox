@@ -28,8 +28,6 @@ from utils import print_array_type
 
 
 
-
-
 class TorchTemporalEncoder(nn.Module):
 
     def __init__(self,
