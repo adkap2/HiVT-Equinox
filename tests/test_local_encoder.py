@@ -6,6 +6,11 @@ import numpy as np
 
 # import einops
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 from jaxtyping import Array, Float, PRNGKeyArray
 from models.equinox_models.aa_encoder import AAEncoder as EquinoxAAEncoder
 from models.torch_models.aa_encoder import TorchAAEncoder

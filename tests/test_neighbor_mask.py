@@ -6,6 +6,11 @@ import equinox as eqx
 import numpy as np
 import numpy.testing as npt
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 # import einops
 
 from jaxtyping import Array, Float, PRNGKeyArray

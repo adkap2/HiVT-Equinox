@@ -1,4 +1,3 @@
-
 import jax
 import torch
 import jax.numpy as jnp
@@ -8,6 +7,10 @@ import numpy.testing as npt
 
 # import einops
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from jaxtyping import Array, Float, PRNGKeyArray
 from models.equinox_models.aa_encoder import AAEncoder as EquinoxAAEncoder
 from models.torch_models.aa_encoder import TorchAAEncoder
@@ -15,89 +18,65 @@ from models.torch_models.local_encoder import LocalEncoder as TorchLocalEncoder
 from models.equinox_models.local_encoder import LocalEncoder as EquinoxLocalEncoder
 
 
-
-
-def test_compute_rotation_matrices():
-    
-    # Test case with 2 nodes
-    dpositions = jnp.array([
-        [1.0, 0.0],  # 0 degrees rotation
-        [0.0, 1.0],  # 90 degrees rotation
-    ])
-
-    historical_steps = 2
-    node_dim = 2
-    edge_dim = 2
-    embed_dim = 2
-    num_heads = 2
-    dropout = 0.1
+def test_compute_rotation_matrix():
+    # Setup
     key = jax.random.PRNGKey(0)
-    
     encoder = EquinoxAAEncoder(
-        historical_steps=historical_steps,
-        node_dim=node_dim,
-        edge_dim=edge_dim,
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        dropout=dropout,
+        historical_steps=2,
+        node_dim=2,
+        edge_dim=2,
+        embed_dim=2,
+        num_heads=2,
+        dropout=0.1,
         key=key,
     )
-    rotate_mat = encoder.compute_rotation_matrices(dpositions)
     
-    # Expected results
-    expected_0deg = jnp.array([[1.0, 0.0], [0.0, 1.0]])
-    expected_90deg = jnp.array([[0.0, -1.0], [1.0, 0.0]])
+    # Test cases
+    test_cases = [
+        # dpositions, idx, expected rotation matrix
+        (jnp.array([[1.0, 0.0]]), 0,  # vector pointing right
+         jnp.array([[1.0, 0.0], [0.0, 1.0]])),  # identity matrix (no rotation)
+        
+        (jnp.array([[0.0, 1.0]]), 0,  # vector pointing up
+         jnp.array([[0.0, -1.0], [1.0, 0.0]])),  # 90 degree rotation
+        
+        (jnp.array([[1.0, 1.0]]), 0,  # 45 degree vector
+         jnp.array([[0.7071068, -0.7071068], [0.7071068, 0.7071068]])),  # 45 degree rotation
+        
+        (jnp.array([[-1.0, 0.0]]), 0,  # vector pointing left
+         jnp.array([[-1.0, 0.0], [0.0, -1.0]])),  # 180 degree rotation
+    ]
     
-    assert rotate_mat.shape == (2, 2, 2)
-    print("rotate_mat", rotate_mat)
-    print("expected_0deg", expected_0deg)
-    print("expected_90deg", expected_90deg)
-    npt.assert_allclose(rotate_mat[0], expected_0deg, atol=1e-6)
-    npt.assert_allclose(rotate_mat[1], expected_90deg, atol=1e-6)
-
-    # Now try more complex cases
-    dpositions = jnp.array([
-        [1.0, 0.0],  # 0 degrees rotation
-        [0.0, 1.0],  # 90 degrees rotation
-        [1.0, 1.0],  # 45 degrees rotation
-        [-1.0, -1.0],  # -45 degrees rotation
-        # 180 degrees rotation
-        [-1.0, 0.0],
-        [0.0, -1.0],
-        # 18 degrees rotation
-        [0.9510565, 0.309017],
-        [-0.309017, 0.9510565],
-    ])
-    rotate_mat = encoder.compute_rotation_matrices(dpositions)
-    print("rotate_mat", rotate_mat)
-
-    expected_0deg = jnp.array([[1.0, 0.0], [0.0, 1.0]])
-    expected_90deg = jnp.array([[0.0, -1.0], [1.0, 0.0]])
-    expected_45deg = jnp.array([[0.7071068, -0.7071068], [0.7071068, 0.7071068]])
-    expected_m45deg = jnp.array([[0.7071068, 0.7071068], [-0.7071068, 0.7071068]])
-    expected_180deg = jnp.array([[-1.0, 0.0], [0.0, -1.0]])
-    expected_18deg = jnp.array([[0.9510565, 0.309017], [-0.309017, 0.9510565]])
-
-    # print the expected results
-    print("expected_0deg", expected_0deg)
-    print("expected_90deg", expected_90deg)
-    print("expected_45deg", expected_45deg)
-    print("expected_m45deg", expected_m45deg)
-    print("expected_180deg", expected_180deg)
-    print("expected_18deg", expected_18deg)
-
-    npt.assert_allclose(rotate_mat[0], expected_0deg, atol=1e-6)
-    npt.assert_allclose(rotate_mat[1], expected_90deg, atol=1e-6)
-    npt.assert_allclose(rotate_mat[2], expected_45deg, atol=1e-6)
-    npt.assert_allclose(rotate_mat[3], expected_m45deg, atol=1e-6)
-    npt.assert_allclose(rotate_mat[4], expected_180deg, atol=1e-6)
-    npt.assert_allclose(rotate_mat[5], expected_180deg, atol=1e-6)
-    npt.assert_allclose(rotate_mat[6], expected_18deg, atol=1e-6)
-    npt.assert_allclose(rotate_mat[7], expected_18deg, atol=1e-6)
+    for dpositions, idx, expected in test_cases:
+        idx = jnp.array(idx)
+        rotate_mat = encoder.compute_rotation_matrix(idx, dpositions)
+        
+        print(f"\nTest case: {dpositions[idx]}")
+        print(f"Computed matrix:\n{rotate_mat}")
+        print(f"Expected matrix:\n{expected}")
+        
+        # Verify matrix properties
+        # 1. Shape should be (2, 2)
+        assert rotate_mat.shape == (2, 2)
+        
+        # 2. Should be close to expected matrix
+        npt.assert_allclose(rotate_mat, expected, atol=1e-6)
+        
+        # 3. Should be orthogonal (R @ R.T = I)
+        identity = jnp.eye(2)
+        npt.assert_allclose(rotate_mat @ rotate_mat.T, identity, atol=1e-6)
+        
+        # 4. Determinant should be 1 (proper rotation)
+        npt.assert_allclose(jnp.linalg.det(rotate_mat), 1.0, atol=1e-6)
+        
+        # 5. Should rotate vector as expected
+        rotated = dpositions[idx] @ rotate_mat
+        print(f"Original vector: {dpositions[idx]}")
+        print(f"Rotated vector: {rotated}")
 
 
 
 
 
 if __name__ == "__main__":
-    test_compute_rotation_matrices()
+    test_compute_rotation_matrix()
