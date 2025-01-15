@@ -186,7 +186,34 @@ class AAEncoder(eqx.Module):
 
         neighbors_xy = jax.vmap(lambda xy: xy - node_xy)(neighbors_xy)
         del node_xy  # Don't need node_xy any more. It should be (0,0)
-        node_dxy = node_dxy @ rot_mat # Want to make sure we are rotating to nodexy coordinates
+        # node_dxy = node_dxy @ rot_mat # Want to make sure we are rotating to nodexy coordinates
+        node_dxy = rot_mat @ node_dxy
+
+
+        # # After rotation
+        # rotated_velocity = rot_mat @ node_dxy
+        # print(f"Center node velocity after rotation: {rotated_velocity}")
+        # # Should be approximately [v, 0] where v is the magnitude of the original velocity
+        # # The y-component should be close to 0
+
+        # # Verify magnitude is preserved
+        # original_speed = jnp.linalg.norm(node_dxy)
+        # rotated_speed = jnp.linalg.norm(rotated_velocity)
+        # print(f"Original speed: {original_speed}")
+        # print(f"Rotated speed: {rotated_speed}")  # Should be the same as original_speed
+
+        # # Check rotation angle
+        # original_angle = jnp.arctan2(node_dxy[1], node_dxy[0])
+        # rotated_angle = jnp.arctan2(rotated_velocity[1], rotated_velocity[0])
+        # print(f"Original angle (degrees): {jnp.degrees(original_angle)}")
+        # print(f"Rotated angle (degrees): {jnp.degrees(rotated_angle)}")  # Should be close to 0
+
+        # # Visual check of neighbor positions (for a few neighbors)
+        # print("\nFirst few neighbor positions:")
+        # print("Before rotation:", neighbors_xy[:3])
+        # rotated_neighbors = jax.vmap(lambda n: n @ rot_mat)(neighbors_xy)
+        # print("After rotation:", rotated_neighbors[:3])
+        # breakpoint()
 
         # # Check rotation matrix properties
         # print("rot_mat", rot_mat)
@@ -206,8 +233,8 @@ class AAEncoder(eqx.Module):
         # 4. distances between points should remain the same after rotation
 
         # You can also check distances are preserved:
-        original_distances = jnp.linalg.norm(neighbors_xy, axis=-1)
-        rotated_distances = jnp.linalg.norm(neighbors_xy @ rot_mat, axis=-1)
+        # original_distances = jnp.linalg.norm(neighbors_xy, axis=-1)
+        # rotated_distances = jnp.linalg.norm(neighbors_xy @ rot_mat, axis=-1)
         # print("Original distances:", original_distances)
         # print("Distances after rotation:", rotated_distances)  # Should be the same as original
 
@@ -250,35 +277,36 @@ class AAEncoder(eqx.Module):
     def create_neighbor_mask(
         self,
         idx: Int[Array, ""],
-        positions: Float[Array, "N 2"],  # positions
-        padding_mask: Bool[Array, "N"],  # mask at current timestep
-        bos_mask: Bool[Array, "N"],  # mask at current timestep # Look closer later
+        positions: Float[Array, "N 2"],
+        padding_mask: Bool[Array, "N"],
+        bos_mask: Bool[Array, "N"],
     ) -> Bool[Array, "1 N"]:
         """Creates adjacency matrix for nodes within max_radius and not padded."""
-        # 1. Compute pairwise distances between all nodes
-
         
-        # # TODO build unit test for this
-        
+        # 1. Calculate relative positions
         rel_pos = positions[idx] - positions
-
-        dist = jnp.linalg.norm(rel_pos, ord = 2, axis=1)
-
+        
+        # 2. Calculate distances
+        dist = jnp.linalg.norm(rel_pos, ord=2, axis=1)
+        
+        # 3. Create distance mask
         dist_mask = dist <= self.max_radius
-
+        
         dist_mask = rearrange(dist_mask, "N -> 1 N")
-
+        
+        # 4. Create valid mask
         valid_mask = ~padding_mask
-
+        
         valid_mask = rearrange(valid_mask, "N -> 1 N")
-
+        
+        # 5. Create self connections
         self_connections = jnp.eye(1, positions.shape[0], dtype=bool)
-
-        # 4. Combine all conditions
+        
+        # 6. Combine masks
         adj_mat = (dist_mask & valid_mask).astype(bool)
+        
         adj_mat |= self_connections
-
-        # Might want valid masks to happen later so i can throw away the padding at this point
+        
         return adj_mat
 
     def compute_rotation_matrix(self, 
@@ -286,7 +314,7 @@ class AAEncoder(eqx.Module):
                                   dpositions: Float[Array, "N xy=2"],
                                   )-> Float[Array, "2 2"]:
         
-        
+        # TODO CHECK with Marcell if this is correct
         # Get displacement vector for the specific node
         dpos = dpositions[idx]  # [2]
         
@@ -305,9 +333,9 @@ class AAEncoder(eqx.Module):
         rotate_mat = rotate_mat.at[1, 1].set(cos_val)
         
         return rotate_mat
-
-
+    
 
 
 # TODO write a function that creates an adjaceny matrix for time t it will then determine if padding mask is true or false. A node wont be connected if it is padded. Filter out things that are padding and things that are too far. This will tell us what are the hubs and spokes.
 # Ignore x and just use the positions.
+
