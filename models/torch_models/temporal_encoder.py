@@ -94,11 +94,9 @@ class TorchTemporalEncoderLayer(nn.Module):
                 src_key_padding_mask: Optional[torch.Tensor] = None,
                 **kwargs) -> torch.Tensor:
         
-
         src_mask = kwargs.get('src_mask', None)
 
         x = src
-
 
         x = x + self._sa_block(self.norm1(x), src_mask, src_key_padding_mask)
         x = x + self._ff_block(self.norm2(x))

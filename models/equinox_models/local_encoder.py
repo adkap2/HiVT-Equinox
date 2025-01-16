@@ -2,13 +2,13 @@ from typing import Optional, Tuple
 import jax
 import jax.numpy as jnp
 import equinox as eqx
-from jaxtyping import Array, Float, Int
+from jaxtyping import Array, Float, Int, PRNGKeyArray
 from beartype import beartype
 from .aa_encoder import AAEncoder
 from utils.equinox.equinox_utils import DistanceDropEdge
 from utils.equinox.graph_utils import subgraph
 from .temporal_encoder import TemporalEncoder
-
+from einops import rearrange
 class LocalEncoder(eqx.Module):
     """Local encoder module using Equinox."""
 
@@ -74,7 +74,7 @@ class LocalEncoder(eqx.Module):
         self.temporal_encoder = TemporalEncoder(historical_steps=historical_steps, embed_dim=embed_dim, num_heads=num_heads, num_layers=num_temporal_layers, dropout=dropout, key=k2)
     # @beartype
     def __call__(
-        self, data: dict, *, key: Optional[jax.random.PRNGKey] = None
+        self, data: dict, *, key: PRNGKeyArray
     ) -> Float[Array, "T N D"]:
         """Forward pass of LocalEncoder.
 
@@ -101,26 +101,34 @@ class LocalEncoder(eqx.Module):
             # )
             # TODO this is done in the neighbor mask now
 
-        # Process each timestep
-        outputs = []
-        for t in range(1, self.historical_steps):
+        # # Process each timestep
+        # outputs = []
+        # for t in range(1, self.historical_steps):
 
-            out_t = self.aa_encoder(
-                positions=data["positions"], t=t, bos_mask=data["bos_mask"], padding_mask=data["padding_mask"]
-            )  # More efficient to do the calculation inside the hub spoke and actually just pass in positojns
+        #     out_t = self.aa_encoder(
+        #         positions=data["positions"], t=t, bos_mask=data["bos_mask"], padding_mask=data["padding_mask"], key=key
+        #     )  # More efficient to do the calculation inside the hub spoke and actually just pass in positojns
 
-            outputs.append(out_t)
+        #     outputs.append(out_t)
 
-        # Can all be done with vmap over the time dimension
-
+        def f(t):
+            return self.aa_encoder(positions=data["positions"], t=t, bos_mask=data["bos_mask"], padding_mask=data["padding_mask"], key=key)
+        # Vmap
+        out = jax.vmap(f)(jnp.arange(1, self.historical_steps))
         # Stack outputs along time dimension
-        out = jnp.stack(outputs)  # [T, N, D] -> [historical_steps = 20 - 1, num_nodes = 2, xy = 2]
-        zero_pad = jnp.zeros((1,) + out.shape[1:]) # [1, num_nodes = 2, xy = 2]
-        out = jnp.concatenate([zero_pad, out], axis=0) # [historical_steps = 20, num_nodes = 2, xy = 2]
+        # Move dimenison N to front
+        out = rearrange(out, "t n d -> n t d")
+
+        # Now vmap over the temporal encoder
+
+        def temporal_encoder_f(x, padding_mask):
+            return self.temporal_encoder(x=x, padding_mask=padding_mask)
+
+        out = jax.vmap(temporal_encoder_f)(out, padding_mask=data["padding_mask"][:, 1: self.historical_steps])
 
 
-
-        out = self.temporal_encoder(x=out, padding_mask=data["padding_mask"][:, : self.historical_steps])
+        # THIS Should be a vmap
+        # out = self.temporal_encoder(x=out, padding_mask=data["padding_mask"][:, : self.historical_steps])
         # breakpoint()
         return out
 

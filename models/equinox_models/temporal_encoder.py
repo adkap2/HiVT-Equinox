@@ -16,7 +16,10 @@ from utils import print_array_type
 import copy
 
 # Add jax type signature to inputs and outputs
+# TODO use bert classifier but dont return classifier head and dont tokenize
 
+# Looking at BERT encoder, we take the sequence and output the dictionary array except we don't want that output
+# We want 
 
 class TransformerEncoder(eqx.Module):
     # ... existing TransformerEncoder implementation ...
@@ -61,10 +64,12 @@ class TemporalEncoder(eqx.Module):
 
         
     def __call__(self, x: jnp.ndarray, # [historical_steps=20, num_nodes=2, xy=2]
-                  padding_mask: jnp.ndarray, # [num_nodes=2, historical_steps=20]
+                  padding_mask: jnp.ndarray, # [num_nodes, historical_steps=20]
                     *, key: Optional[PRNGKeyArray] = None):
         
+        # TODO Do not do batching since it will be better to vmap over the agents
         padding_mask_transformed = rearrange(padding_mask, 'batch time -> time batch 1')
+        # IF the timestep is padding we make it so it can only attend to itself
         x = jnp.where(padding_mask_transformed, self.padding_token, x)
         expand_cls_token = repeat(self.cls_token, '1 1 d -> 1 batch d', batch=x.shape[1]) # [1, num_nodes=2, embed_dim=2]
         x = jnp.concatenate([x, expand_cls_token], axis=0) # [historical_steps+1=21, num_nodes=2, embed_dim=2]

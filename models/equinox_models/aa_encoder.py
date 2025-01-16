@@ -136,16 +136,21 @@ class AAEncoder(eqx.Module):
         ],  # Full trajectories [Num_nodes, timesteps, xy]
         bos_mask: Bool[Array, "N t=20"],  # Shape: [Numnodes, timesteps]
         padding_mask: Bool[Array, "N t=50"],  # Shape: [Numnodes, timesteps]
-        t: int
+        t: int,
+        key: PRNGKeyArray
     )-> Float[Array, "N hidden_dim"]:
 
         assert t > 0, "t must be greater than 0"
+
+        # TODO create a key split of position shape.siuze
         node_indices = jnp.arange(0, positions.shape[0])
 
-        def f(idx):
-            return self.hub_spoke_nn(idx, positions, t, bos_mask, padding_mask)
+        keys = jax.random.split(key, positions.shape[0])
+
+        def f(idx, key):
+            return self.hub_spoke_nn(idx, positions, t, bos_mask, padding_mask, key)
         
-        outputs = jax.vmap(f)(node_indices)
+        outputs = jax.vmap(f)(node_indices, keys)
 
         return outputs
 
@@ -162,7 +167,12 @@ class AAEncoder(eqx.Module):
         t: int,
         bos: Bool[Array, "N t=20"],
         padding_mask: Bool[Array, "N t=50"],
+        key: PRNGKeyArray
     )-> Float[Array, "hidden_dim"]:  # TODO complete function before adding this in
+        
+        # Split it here the key
+        # TODO pass a key into this function
+
 
         assert t > 0, "t must be greater than 0"
 
@@ -239,34 +249,40 @@ class AAEncoder(eqx.Module):
         # print("Distances after rotation:", rotated_distances)  # Should be the same as original
 
 
-        neighbors_xy = jax.vmap(lambda n: n @ rot_mat)(neighbors_xy)
+        # neighbors_xy = jax.vmap(lambda n: n @ rot_mat)(neighbors_xy)
+        neighbors_xy = jax.vmap(lambda n: rot_mat @ n)(neighbors_xy)
 
         center_embed = self._center_embed(node_dxy)
+        center_embed = self.norm1(center_embed)
+
         # Expand out by 1 element
-        center_embed = rearrange(center_embed, "d -> 1 d")
 
         nbr_embed = jax.vmap(lambda a, b: self._nbr_embed([a, b]))(
             neighbors_xy, neighbors_dxy
         )
 
-        center_embed = jax.vmap(lambda x: self.norm1(x))(center_embed)
-        # MHA 
-        mha = self.attention(query=center_embed, key_=nbr_embed, value=nbr_embed, mask=mask)
+        # center_embed = jax.vmap(lambda x: self.norm1(x))(center_embed)
 
-        inputs = rearrange(mha, "1 d -> d")
+
+        query = rearrange(center_embed, "d -> 1 d")
+
+        # MHA 
+        mha = self.attention(query=query, key_=nbr_embed, value=nbr_embed, mask=mask)
+
+        new_msg = rearrange(mha, "1 d -> d")
         # Rearange center embed
-        center_embed = rearrange(center_embed, "1 d -> d")
         gate = jax.nn.sigmoid(
-            self.lin_ih(inputs) + self.lin_hh(center_embed)
+            self.lin_ih(new_msg) + self.lin_hh(center_embed)
         )
 
-        center_embed = inputs + gate * (
-            self.lin_self(center_embed) - inputs
+        # It is a convex combination
+        center_embed = new_msg + gate * (
+            self.lin_self(center_embed) - new_msg
         ) # Shape: [hidden_dim = 2]
 
         center_embed = self.norm2(center_embed)
 
-        ff_output = self.mlp(center_embed, key=jax.random.PRNGKey(0))
+        ff_output = self.mlp(center_embed, key=key)
 
         center_embed = center_embed + ff_output
 
