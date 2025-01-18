@@ -36,7 +36,6 @@ class TemporalEncoder(eqx.Module):
     dropout: float
 
     transformer_encoder: TransformerEncoder
-    encoder_layer: eqx.Module
     padding_token: jnp.ndarray
     cls_token: jnp.ndarray
     pos_embed: jnp.ndarray
@@ -44,7 +43,7 @@ class TemporalEncoder(eqx.Module):
     attn_mask: jnp.ndarray
 
     @beartype
-    def __init__(self, historical_steps: int, embed_dim: int, num_heads: int, num_layers: int, dropout: float, *, key: Optional[PRNGKeyArray] = None):
+    def __init__(self, historical_steps: int, embed_dim: int, num_heads: int, num_layers: int, dropout: float, *, key: PRNGKeyArray):
         keys = jax.random.split(key, 4)
         self.historical_steps = historical_steps
         self.embed_dim = embed_dim
@@ -52,41 +51,35 @@ class TemporalEncoder(eqx.Module):
         self.num_layers = num_layers
         self.dropout = dropout
 
-
-        self.encoder_layer = EquinoxTemporalEncoderLayer(embed_dim=self.embed_dim, num_heads=self.num_heads, dropout=self.dropout)
-
-        self.transformer_encoder = TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=self.num_layers, norm=eqx.nn.LayerNorm(self.embed_dim))
-        self.padding_token = jax.random.normal(keys[0], (historical_steps, 1, self.embed_dim)) # [historical_steps=20, 1, embed_dim=2]
-        self.cls_token = jax.random.normal(keys[1], (1, 1, self.embed_dim)) # [1, 1, embed_dim=2]
-        self.pos_embed = jax.random.normal(keys[2], (historical_steps + 1, 1, self.embed_dim)) # [historical_steps+1=21, 1, embed_dim=2]    
+        self.transformer_encoder = TransformerEncoder(embed_dim=self.embed_dim, num_heads=self.num_heads, dropout=self.dropout, key=keys[0], num_layers=self.num_layers)
+        self.padding_token = jax.random.normal(keys[1], (1, self.embed_dim)) # [historical_steps=20, 1, embed_dim=2]
+        
+        # TODO make this an embedding using the eqx.nn.Embedding
+        self.cls_token = jax.random.normal(keys[2], (1,self.embed_dim)) # [1, 1, embed_dim=2]
+        # TODO make this an embedding using the eqx.nn.Embedding
+        self.pos_embed = jax.random.normal(keys[3], (historical_steps + 1, self.embed_dim)) # [historical_steps+1=21, 1, embed_dim=2]    
         self.attn_mask = self.generate_square_subsequent_mask(historical_steps + 1) # [historical_steps+1=21, historical_steps+1=21]
+        
+        
         #TODO Add INIT weights
 
         
     def __call__(self, x: jnp.ndarray, # [historical_steps=20, num_nodes=2, xy=2]
                   padding_mask: jnp.ndarray, # [num_nodes, historical_steps=20]
-                    *, key: Optional[PRNGKeyArray] = None):
+                    *, key: PRNGKeyArray):
         
         # TODO Do not do batching since it will be better to vmap over the agents
-        padding_mask_transformed = rearrange(padding_mask, 'batch time -> time batch 1')
         # IF the timestep is padding we make it so it can only attend to itself
-        x = jnp.where(padding_mask_transformed, self.padding_token, x)
-        expand_cls_token = repeat(self.cls_token, '1 1 d -> 1 batch d', batch=x.shape[1]) # [1, num_nodes=2, embed_dim=2]
-        x = jnp.concatenate([x, expand_cls_token], axis=0) # [historical_steps+1=21, num_nodes=2, embed_dim=2]
-        x = x + self.pos_embed # [historical_steps+1=21, num_nodes=2, embed_dim=2]
-        # out = self.transformer_encoder(x=x, mask=self.attn_mask, key=key, src_key_padding_mask=None)
-        # Vmap the entire transformer encoder
-        vmapped_transformer_encoder = jax.vmap(
-            lambda x: self.transformer_encoder(
-                x=x,
-                mask=self.attn_mask,
-                key=key,
-                src_key_padding_mask=None
-            ),
-            in_axes=1,  # vmap over second dimension (num_nodes)
-            out_axes=1
-        )
-        out = vmapped_transformer_encoder(x)
+        
+        # Add the padding token to the beginning of the sequence
+        x = jnp.vstack([self.padding_token, x]) # [1, hidden_dim]
+        x = jnp.vstack([x, self.cls_token])  # Will be (21, 2)
+        x = x + self.pos_embed # [historical_steps+1=21, hidden_dim]
+
+        # COmbine the src key padding mask and the padding mask Do with outer product and get conjuction between them
+        new_mask = jnp.outer(padding_mask, self.attn_mask)
+
+        out = self.transformer_encoder(x=x, key=key, mask=new_mask)
         return out[-1] # [num_nodes=2, embed_dim=2]
     
     @staticmethod
@@ -114,7 +107,7 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
     norm1: eqx.nn.LayerNorm
     norm2: eqx.nn.LayerNorm
 
-    def __init__(self, embed_dim: int, num_heads: int, dropout: float, *, key: Optional[PRNGKeyArray] = None):
+    def __init__(self, embed_dim: int, num_heads: int, dropout: float, *, key: PRNGKeyArray):
         if key is None:
             key = jax.random.PRNGKey(0)
         keys = jax.random.split(key, 2)
@@ -131,54 +124,40 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
         self.dropout1 = eqx.nn.Dropout(self.dropout)
         self.dropout2 = eqx.nn.Dropout(self.dropout)
 
-
-    def __call__(self, src: jnp.ndarray, # [historical_steps+1=21, xy=2]
-                  src_mask: jnp.ndarray = None, # [historical_steps+1=21, historical_steps+1=21]
-                  src_key_padding_mask: Optional[jnp.ndarray] = None,
+    @beartype
+    def __call__(self, src: Float[Array, "t d"], # [historical_steps+1=21, xy=2]
+                  src_mask: Float[Array, "t t"], # [historical_steps+1=21, historical_steps+1=21] # TODO its a bools but i guess stored as 0,1??
                     *, 
-                    key: Optional[jax.random.PRNGKey] = None,
+                    key: PRNGKeyArray,
                     ) -> jnp.ndarray:
+        
+        key1, key2 = jax.random.split(key, 2)
         x = src
         # Vmap LayerNorm over sequence dimension
         vmapped_norm1 = jax.vmap(self.norm1)
         vmapped_norm2 = jax.vmap(self.norm2)
-        x = x + self._sa_block(vmapped_norm1(x), attn_mask=src_mask, key_padding_mask=src_key_padding_mask, key=key)
-        x = x + self._ff_block(vmapped_norm2(x), key=key)
+        # TODO write this as inline where its one function
+        # x = x + self._sa_block(vmapped_norm1(x), attn_mask=src_mask, key=key)
+
+        x = vmapped_norm1(x)
+        x = x + self.self_attn(query=x,key_=x,value=x,mask=src_mask,key=key1)
+        x = x + self._ff_block(vmapped_norm2(x), key=key2)
 
         return x
     
-    def _sa_block(self, x: jnp.ndarray,
-                  attn_mask: Optional[jnp.ndarray] = None,
-                  key_padding_mask: Optional[jnp.ndarray] = None,
-                    *, 
-                    key: Optional[jax.random.PRNGKey] = None,
-                    ) -> jnp.ndarray:
 
-        keys = jax.random.split(key, 2)
-
-        x = self.self_attn(query=x,
-                            key_=x,
-                              value=x,
-                                mask=attn_mask, 
-                                key=keys[0],
-                                )
-        return self.dropout1(x, key=keys[1])
-    
     def _ff_block(self, x: jnp.ndarray, # [historical_steps+1=21, xy=2]
-                  key: Optional[jax.random.PRNGKey] = None,
+                  key: PRNGKeyArray,
                     ) -> jnp.ndarray:
 
 
         # Split PRNG key for the two dropout operations
-        if key is not None:
-            key1, key2 = jax.random.split(key)
-        else:
-            key1 = key2 = None
+        key1, key2 = jax.random.split(key)
+
 
         # Vmap the linear layers over sequence dimension
         vmapped_linear1 = jax.vmap(self.linear1)
         vmapped_linear2 = jax.vmap(self.linear2)
-
 
         x = vmapped_linear1(x)  # [historical_steps+1=21, embed_dim*4=8]
         x = jax.nn.relu(x)
@@ -195,61 +174,51 @@ class TransformerEncoder(eqx.Module):
     """TransformerEncoder is a stack of N encoder layers."""
     
     layers: List[eqx.Module]
-    norm: Optional[eqx.nn.LayerNorm]
-    encoder_layer: eqx.Module
-    num_layers: int
 
-
-    
     def __init__(
         self,
-        encoder_layer: eqx.Module,
+        embed_dim: int,
+        num_heads: int,
+        dropout: float,
+        *,
+        key: PRNGKeyArray,
         num_layers: int,
-        norm: Optional[eqx.nn.LayerNorm] = None,
     ):
         """
         Args:
-            encoder_layer: Single transformer encoder layer
-            num_layers: Number of times to stack the encoder layer
-            norm: Optional layer normalization
+            embed_dim: The dimension of the input embeddings
+            num_heads: The number of attention heads
+            dropout: The dropout rate
+            key: The PRNG key for initializing the layers
+            num_layers: The number of layers to stack
         """
 
-        self.num_layers = num_layers
-        self.encoder_layer = encoder_layer
         # Create copies of the encoder layer
-        self.layers = [copy.deepcopy(encoder_layer) for _ in range(num_layers)]
+        self.layers = []
+        for key in jax.random.split(key, num_layers):
+            self.layers.append(
+                EquinoxTemporalEncoderLayer(embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, key=key)
+            )
 
-        self.norm = norm
-
+    @beartype
     def __call__(
         self,
         x: jnp.ndarray, # [historical_steps=20, xy=2]
-        mask: jnp.ndarray = None,
-        src_key_padding_mask: Optional[jnp.ndarray] = None,
+        mask: jnp.ndarray,
         *,
-        key: Optional[jax.random.PRNGKey] = None,
+        key: PRNGKeyArray
     ) -> jnp.ndarray:
         
-        if key is None:
-            key = jax.random.PRNGKey(0)
         # Split PRNG key for each layer if provided
         keys = jax.random.split(key, len(self.layers))
         output = x
 
         def f(x, layer, key):
-            return layer(x, 
-                         src_mask=mask,
-                         src_key_padding_mask=src_key_padding_mask,
-                         key=key)
+            return layer(x, src_mask=mask, key=key)
         
 
+        # TODO convert to a scan
         for layer, key in zip(self.layers, keys):
             output = f(output, layer, key=key)
 
-        vmapped_norm = jax.vmap(self.norm)
-
-        # Apply final normalization if provided
-        if self.norm is not None:
-            x = vmapped_norm(x)
-            
-        return x
+        return output

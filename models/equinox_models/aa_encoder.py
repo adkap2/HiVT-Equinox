@@ -2,10 +2,12 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from typing import Optional, Tuple, List
-from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool
+from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool, Union, Scalar
 from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputEmbedding
 
 from einops import rearrange, reduce
+
+# Import jnp
 
 # Import beartype
 from beartype import beartype
@@ -136,11 +138,16 @@ class AAEncoder(eqx.Module):
         ],  # Full trajectories [Num_nodes, timesteps, xy]
         bos_mask: Bool[Array, "N t=20"],  # Shape: [Numnodes, timesteps]
         padding_mask: Bool[Array, "N t=50"],  # Shape: [Numnodes, timesteps]
-        t: int,
+        t: Int[Scalar, ""],
         key: PRNGKeyArray
     )-> Float[Array, "N hidden_dim"]:
 
-        assert t > 0, "t must be greater than 0"
+        # jax.debug.breakpoint()
+
+        # T is a trivial array
+        jax.debug.print("t {t}", t=t)
+        # assert (t > 0).all(), "t must be greater than 0"
+
 
         # TODO create a key split of position shape.siuze
         node_indices = jnp.arange(0, positions.shape[0])
@@ -164,7 +171,7 @@ class AAEncoder(eqx.Module):
         self,
         idx: Int[Array, ""],
         positions: Float[Array, "N t=50 xy=2"],
-        t: int,
+        t: Int[Scalar, ""],
         bos: Bool[Array, "N t=20"],
         padding_mask: Bool[Array, "N t=50"],
         key: PRNGKeyArray
@@ -173,8 +180,7 @@ class AAEncoder(eqx.Module):
         # Split it here the key
         # TODO pass a key into this function
 
-
-        assert t > 0, "t must be greater than 0"
+        # assert (t > 0).all(), "t must be greater than 0"
 
         dpositions = positions[:, t, :] - positions[:, t - 1, :]
 

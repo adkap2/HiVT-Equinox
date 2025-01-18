@@ -111,22 +111,36 @@ class LocalEncoder(eqx.Module):
 
         #     outputs.append(out_t)
 
+        key1, key2 = jax.random.split(key)
+
         def f(t):
-            return self.aa_encoder(positions=data["positions"], t=t, bos_mask=data["bos_mask"], padding_mask=data["padding_mask"], key=key)
+            return self.aa_encoder(positions=data["positions"], t=t, bos_mask=data["bos_mask"], padding_mask=data["padding_mask"], key=key1)
         # Vmap
+
         out = jax.vmap(f)(jnp.arange(1, self.historical_steps))
+        
+        # Process one timestep at a time
+
+
         # Stack outputs along time dimension
         # Move dimenison N to front
         out = rearrange(out, "t n d -> n t d")
 
-        # Now vmap over the temporal encoder
+        # # Now vmap over the temporal encoder
+        # def temporal_encoder_f(x, padding_mask, key):
+        #     key_i = jax.random.fold_in(key, 0)  # or use a unique index for each batch
+        #     return self.temporal_encoder(x=x, padding_mask=padding_mask, key=key_i)
 
-        def temporal_encoder_f(x, padding_mask):
-            return self.temporal_encoder(x=x, padding_mask=padding_mask)
+        # keys = jax.random.split(key2, self.historical_steps)
+        # out = jax.vmap(temporal_encoder_f)(out, padding_mask=data["padding_mask"][:, 1: self.historical_steps], key=key)
+        def temporal_encoder_f(x, padding_mask, key):
+            return self.temporal_encoder(x=x, padding_mask=padding_mask, key=key)
 
-        out = jax.vmap(temporal_encoder_f)(out, padding_mask=data["padding_mask"][:, 1: self.historical_steps])
-
-
+        # Split keys for each element in the batch
+        keys = jax.random.split(key2, out.shape[0])  # Split for each batch element
+        out = jax.vmap(temporal_encoder_f)(out, 
+                                         padding_mask=data["padding_mask"][:, 1: self.historical_steps], 
+                                         key=keys)
         # THIS Should be a vmap
         # out = self.temporal_encoder(x=out, padding_mask=data["padding_mask"][:, : self.historical_steps])
         # breakpoint()
