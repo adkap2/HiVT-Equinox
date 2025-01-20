@@ -126,11 +126,6 @@ class LocalEncoder(eqx.Module):
         # Move dimenison N to front
         out = rearrange(out, "t n d -> n t d")
 
-        # # Now vmap over the temporal encoder
-        # def temporal_encoder_f(x, padding_mask, key):
-        #     key_i = jax.random.fold_in(key, 0)  # or use a unique index for each batch
-        #     return self.temporal_encoder(x=x, padding_mask=padding_mask, key=key_i)
-
         # keys = jax.random.split(key2, self.historical_steps)
         # out = jax.vmap(temporal_encoder_f)(out, padding_mask=data["padding_mask"][:, 1: self.historical_steps], key=key)
         def temporal_encoder_f(x, padding_mask, key):
@@ -142,7 +137,6 @@ class LocalEncoder(eqx.Module):
                                          padding_mask=data["padding_mask"][:, 1: self.historical_steps], 
                                          key=keys)
         # THIS Should be a vmap
-        # out = self.temporal_encoder(x=out, padding_mask=data["padding_mask"][:, : self.historical_steps])
         # breakpoint()
         return out
 

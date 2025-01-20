@@ -76,9 +76,13 @@ class TemporalEncoder(eqx.Module):
         x = jnp.vstack([x, self.cls_token])  # Will be (21, 2)
         x = x + self.pos_embed # [historical_steps+1=21, hidden_dim]
 
-        # COmbine the src key padding mask and the padding mask Do with outer product and get conjuction between them
-        new_mask = jnp.outer(padding_mask, self.attn_mask)
+        # 1. First extend padding mask to include padding token and cls token
+        padding_mask = jnp.pad(padding_mask, ((0, 1),), constant_values=1)  # Add cls token -> [num_nodes, 20]
+        padding_mask = jnp.pad(padding_mask, ((1, 0),), constant_values=1)  # Add padding token at start -> [num_nodes, 21]
 
+        # COmbine the src key padding mask and the padding mask Do with outer product and get conjuction between them
+        new_mask = (jnp.outer(padding_mask, padding_mask))
+        new_mask = jnp.logical_and(new_mask, self.attn_mask)
         out = self.transformer_encoder(x=x, key=key, mask=new_mask)
         return out[-1] # [num_nodes=2, embed_dim=2]
     
@@ -126,7 +130,7 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
 
     @beartype
     def __call__(self, src: Float[Array, "t d"], # [historical_steps+1=21, xy=2]
-                  src_mask: Float[Array, "t t"], # [historical_steps+1=21, historical_steps+1=21] # TODO its a bools but i guess stored as 0,1??
+                  src_mask: Bool[Array, "t t"], # [historical_steps+1=21, historical_steps+1=21] # TODO its a bools but i guess stored as 0,1??
                     *, 
                     key: PRNGKeyArray,
                     ) -> jnp.ndarray:
@@ -167,8 +171,6 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
                 
         return x
                 
-        
-
 
 class TransformerEncoder(eqx.Module):
     """TransformerEncoder is a stack of N encoder layers."""
