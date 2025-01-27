@@ -196,6 +196,15 @@ def process_argoverse(split: str,
             padding_mask[node_idx, 20:] = True
         # xy = torch.from_numpy(np.stack([actor_df['X'].values, actor_df['Y'].values], axis=-1)).float()
         
+
+        # coords: Represents the x,y dimensions (so coords=2)
+        # points: Represents each point/position in the trajectory
+
+        # For example, if actor_df has 20 positions, the shapes would be:
+        # Input shape: [2, 20] where:
+        # First dimension (2): X coordinates and Y coordinates
+        # Second dimension (20): The 20 points/positions
+
         # Stack coordinates using einops
         xy = rearrange(
             torch.tensor([actor_df['X'].values, actor_df['Y'].values]),
@@ -332,7 +341,15 @@ def get_lane_features(am: ArgoverseMap,
     for node_position in node_positions:
         lane_ids.update(am.get_lane_ids_in_xy_bbox(node_position[0], node_position[1], city, radius))
     # node_positions0 = torch.matmul(node_positions - origin, rotate_mat).float() # rotation matrix is used to rotate the node positions to the AV's frame of reference
-
+   
+   
+    # This performs matrix multiplication to rotate points.
+    # node_positions - origin: Centers the points at origin [N, 2]
+    # rotate_mat: 2D rotation matrix [2, 2] (typically looks like [[cos θ, -sin θ], [sin θ, cos θ]])
+    # Pattern 'n d, d r -> n r':
+    # n: number of nodes/points
+    # d: input dimension (2 for 2D)
+    # r: rotated dimension (2 for 2D)
     node_positions = einsum(
     node_positions - origin,  # [N, 2]
     rotate_mat,              # [2, 2]
@@ -425,6 +442,15 @@ def get_lane_features(am: ArgoverseMap,
     lane_indices = torch.arange(lane_vectors.size(0))
     node_indices = torch.tensor(node_inds)
 
+
+    # lane_indices: List of lane IDs [0,1,2,...,L] where L is number of lanes
+    # node_indices: List of node/actor IDs [0,1,2,...,N] where N is number of nodes
+    # P: Total number of pairs (P = L N)
+    # For example, if you have:
+    # 3 lanes: [0,1,2]
+    # 2 nodes: [0,1]
+    # torch.cartesian_prod creates all possible pairs:
+
     lane_actor_index = rearrange(
         torch.cartesian_prod(lane_indices, node_indices),  # [P, 2] where P = L * N
         'p two -> two p'                                   # transpose to [2, P]
@@ -433,6 +459,11 @@ def get_lane_features(am: ArgoverseMap,
 
     # lane_actor_vectors = \
     #     lane_positions.repeat_interleave(len(node_inds), dim=0) - node_positions.repeat(lane_vectors.size(0), 1)
+    
+    # This creates vectors from each node to each lane point,
+    #  which can be used to calculate distances or spatial relationships
+    #  between nodes and lanes.
+
     
     # With einops
     lane_actor_vectors = (
@@ -449,11 +480,11 @@ def get_lane_features(am: ArgoverseMap,
     )
 
     # mask = torch.norm(lane_actor_vectors, p=2, dim=-1) < radius
-
+    # pairs: Represents each lane-actor pair combination. For example, if you have 10 lanes and 5 actors, you'd have 50 pairs
     # With einops
     mask = (reduce(
         lane_actor_vectors ** 2,
-        'pairs coords -> pairs',          # More descriptive names
+        'pairs xy -> pairs',       
         reduction='sum'
     ).sqrt() < radius)
 
