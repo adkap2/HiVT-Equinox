@@ -149,7 +149,34 @@ def process_argoverse(split: str,
     x: torch.Tensor = torch.zeros(num_nodes, 50, 2,  dtype=torch.float) # [N, 50, 2] # Position of the Nodes Looking at total of 50 timesteps, 20 prior and 30 ahead and xy dim=2
     # print("x", x) 
     # breakpoint()
-    edge_index: torch.Tensor = torch.LongTensor(list(permutations(range(num_nodes), 2))).t().contiguous() # [2, E] # Edge Index where E is the number of edges
+    # edge_index: torch.Tensor = torch.LongTensor(list(permutations(range(num_nodes), 2))).t().contiguous() # [2, E] # Edge Index where E is the number of edges
+    
+    # Create all pairs of nodes using einops
+    source_nodes = repeat(
+        torch.arange(num_nodes),
+        'n -> (n t)',              # repeat each source node for each target
+        t=num_nodes
+    )
+
+    target_nodes = repeat(
+        torch.arange(num_nodes),
+        't -> (n t)',              # repeat all target nodes for each source
+        n=num_nodes
+    )
+
+    # Stack and filter self-loops
+    edge_index = rearrange(
+        [source_nodes, target_nodes],
+        'st (n t) -> st (n t)',    # st=source/target dimension (2), n=num_nodes, t=num_nodes
+        n=num_nodes
+    )
+
+    # Remove self-loops
+    mask = edge_index[0] != edge_index[1]
+    edge_index = edge_index[:, mask].contiguous()
+
+    
+    
     # print("edge_index", edge_index)
     # breakpoint()
     padding_mask: torch.Tensor = torch.ones(num_nodes, 50, dtype=torch.bool) # [N, 50] # Padding Mask
@@ -164,10 +191,29 @@ def process_argoverse(split: str,
         padding_mask[node_idx, node_steps] = False
         if padding_mask[node_idx, 19]:  # make no predictions for actors that are unseen at the current time step
             padding_mask[node_idx, 20:] = True
-        xy = torch.from_numpy(np.stack([actor_df['X'].values, actor_df['Y'].values], axis=-1)).float()
-        x[node_idx, node_steps] = torch.matmul(xy - origin, rotate_mat) # Matrix Multiplication of the Position of the Nodes and the Rotation Matrix
-        node_historical_steps = list(filter(lambda node_step: node_step < 20, node_steps)) #   I think this filters out the node steps less than 20 and only looks at the ones greater or equal to 20
+        # xy = torch.from_numpy(np.stack([actor_df['X'].values, actor_df['Y'].values], axis=-1)).float()
         
+        # Stack coordinates using einops
+        xy = rearrange(
+            torch.tensor([actor_df['X'].values, actor_df['Y'].values]),
+            'coords points -> points coords',
+            coords=2
+        ).float()
+
+        
+        # x[node_idx, node_steps] = torch.matmul(xy - origin, rotate_mat) # Matrix Multiplication of the Position of the Nodes and the Rotation Matrix
+        # node_historical_steps = list(filter(lambda node_step: node_step < 20, node_steps)) #   I think this filters out the node steps less than 20 and only looks at the ones greater or equal to 20
+        
+        # Rotate coordinates using einsum
+        x[node_idx, node_steps] = einsum(
+            xy - origin,           # [T, 2]
+            rotate_mat,           # [2, 2]
+            'time d, d r -> time r'  # time=timesteps, d=input dim, r=rotated dim
+        )
+        
+        # Filter historical steps (could use einops but simple list comp is clearer here)
+        node_historical_steps = [step for step in node_steps if step < 20]
+
         # Calculate the Rotation Angle of the Nodes
         # At every time step, the rotation angle is the angle between the heading vector of the nodes from the last two time steps
         
@@ -182,40 +228,63 @@ def process_argoverse(split: str,
     bos_mask[:, 1:20] = padding_mask[:, :19] & ~padding_mask[:, 1:20] # Its not really a beginning of sequence mask, it tells us if the agent is in the current scene but not in the previous scene
 
     positions = x.clone()
-    x[:, 20:] = torch.where((padding_mask[:, 19].unsqueeze(-1) | padding_mask[:, 20:]).unsqueeze(-1),
-                            torch.zeros(num_nodes, 30, 2),
-                            x[:, 20:] - x[:, 19].unsqueeze(-2)) # TODO [N, 30, 2] # Replace with EINOPS
-    x[:, 1:20] = torch.where((padding_mask[:, :19] | padding_mask[:, 1:20]).unsqueeze(-1),
-                              torch.zeros(num_nodes, 19, 2), # TODO this calculation should be done in the local endoder. Basically if you don't have a previous position, you can't calculate the difference
-                              x[:, 1:20] - x[:, :19]) # [N, 19, 2] # TODO Replace with EINOPS 
-    x[:, 0] = torch.zeros(num_nodes, 2) # [N, 2] # Position of the Nodes at Time Step 0
+    # x[:, 20:] = torch.where((padding_mask[:, 19].unsqueeze(-1) | padding_mask[:, 20:]).unsqueeze(-1),
+    #                         torch.zeros(num_nodes, 30, 2),
+    #                         x[:, 20:] - x[:, 19].unsqueeze(-2)) # TODO [N, 30, 2] # Replace with EINOPS
+    # x[:, 1:20] = torch.where((padding_mask[:, :19] | padding_mask[:, 1:20]).unsqueeze(-1),
+    #                           torch.zeros(num_nodes, 19, 2), # TODO this calculation should be done in the local endoder. Basically if you don't have a previous position, you can't calculate the difference
+    #                           x[:, 1:20] - x[:, :19]) # [N, 19, 2] # TODO Replace with EINOPS 
+    # x[:, 0] = torch.zeros(num_nodes, 2) # [N, 2] # Position of the Nodes at Time Step 0
+
+
+    # Future positions (t >= 20)
+    mask_future = repeat(
+        padding_mask[:, 19:20] | padding_mask[:, 20:],  # Make sure first part is [N, 1] to broadcast
+        'n t -> n t xy',
+        xy=2
+    )
+    x[:, 20:] = torch.where(
+        mask_future,
+        torch.zeros(num_nodes, 30, 2),
+        x[:, 20:] - repeat(x[:, 19:20], 'n t xy -> n (t r) xy', r=30)  # Expand properly
+    )
+
+    # Historical positions (1 <= t < 20)
+    mask_historical = repeat(
+        padding_mask[:, :19] | padding_mask[:, 1:20],
+        'n t -> n t xy',
+        xy=2
+    )
+    x[:, 1:20] = torch.where(
+        mask_historical,
+        torch.zeros(num_nodes, 19, 2),
+        x[:, 1:20] - x[:, :19]
+    )
+
+    # Initial position (t = 0)
+    x[:, 0] = torch.zeros(num_nodes, 2)
+
 
     # get lane features at the current time step
     df_19 = df[df['TIMESTAMP'] == timestamps[19]]
     node_inds_19 = [actor_ids.index(actor_id) for actor_id in df_19['TRACK_ID']]
-    node_positions_19 = torch.from_numpy(np.stack([df_19['X'].values, df_19['Y'].values], axis=-1)).float()
+    # node_positions_19 = torch.from_numpy(np.stack([df_19['X'].values, df_19['Y'].values], axis=-1)).float()
+
+    # Stack coordinates using einops
+    node_positions_19 = rearrange(
+        torch.tensor([df_19['X'].values, df_19['Y'].values]),
+        'coords points -> points coords',
+        coords=2
+    ).float()
+
+
     (lane_vectors, is_intersections, turn_directions, traffic_controls, lane_actor_index,
      lane_actor_vectors) = get_lane_features(am, node_inds_19, node_positions_19, origin, rotate_mat, city, radius) # Get the Lane Features
 
     y = None if split == 'test' else x[:, 20:] # Future Trajectories of the Nodes
     seq_id = os.path.splitext(os.path.basename(raw_path))[0]
 
-    print("x", x)
-    breakpoint()
-    print("positions", positions)
-    breakpoint()
-    print("edge_index", edge_index)
-    breakpoint()
-    print("y", y)
-    breakpoint()
-    print("num_nodes", num_nodes)
-    breakpoint()
-    print("padding_mask", padding_mask)
-    breakpoint()
-    print("bos_mask", bos_mask)
-    breakpoint()
-    print("rotate_angles", rotate_angles)
-    breakpoint()
+
 
     return {
         'x': x[:, :20],  # [N, 20, 2]
@@ -236,7 +305,7 @@ def process_argoverse(split: str,
         'av_index': av_index,
         'agent_index': agent_index,
         'city': city,
-        'origin': origin.unsqueeze(0),
+        'origin': repeat(origin, 'xy -> 1 xy'),
         'theta': theta,
     }
 
