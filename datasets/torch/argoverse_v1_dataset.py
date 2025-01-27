@@ -55,6 +55,8 @@ class ArgoverseV1Dataset(Dataset):
         self._raw_file_names = os.listdir(self.raw_dir)
         self._processed_file_names = [os.path.splitext(f)[0] + '.pt' for f in self.raw_file_names]
         self._processed_paths = [os.path.join(self.processed_dir, f) for f in self._processed_file_names]
+        print("self._processed_paths", self._processed_paths)
+
         super(ArgoverseV1Dataset, self).__init__(root, transform=transform)
 
     @property
@@ -83,6 +85,7 @@ class ArgoverseV1Dataset(Dataset):
             kwargs = process_argoverse(self._split, raw_path, am, self._local_radius)
             # Pass in the kwargs to create the temporal data from the dictionary of data
             data = TemporalData(**kwargs) # This is where temporal data is created
+            jax.debug.breakpoint()
             torch.save(data, os.path.join(self.processed_dir, str(kwargs['seq_id']) + '.pt'))
 
     def len(self) -> int:

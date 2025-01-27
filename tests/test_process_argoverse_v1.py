@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 import numpy as np
-
+import jax
 # import argoverse
 
 
@@ -23,7 +23,7 @@ argoverse_path = os.path.join(
 sys.path.append(argoverse_path)
 
 from argoverse.map_representation.map_api import ArgoverseMap
-from datasets.torch.argoverse_v1_dataset import process_argoverse
+from datasets.torch.argoverse_v1_dataset import process_argoverse, ArgoverseV1Dataset
 
 
 
@@ -107,10 +107,31 @@ if __name__ == "__main__":
         # Run tests
         test_csv_exists(csv_path)
         print("✅ CSV test passed!")
+
+        dataset_dir = "datasets"
+
+        train_dir = "datasets/train/data"
+        csv_files = [f for f in os.listdir(train_dir) if f.endswith('.csv')]
+        print(f"Found {len(csv_files)} CSV files")
+
+        # Initialize ArgoMap
+        am = ArgoverseMap()
         
-        # test_process_argoverse_basic(csv_path, am)
-        # print("✅ Basic processing test passed!")
+        # Test a subset of files (e.g., first 5)
+        for csv_file in csv_files[:5]:
+            csv_path = os.path.join(train_dir, csv_file)
+            print(f"\nTesting file: {csv_file}")
+            
         
+            test_process_argoverse_basic(csv_path, am)
+            print("✅ Basic processing test passed!")
+
+            # jax.debug.breakpoint()
+
+        argo_v1_dataset = ArgoverseV1Dataset(root=dataset_dir, split='sample', transform=None)
+    
+        argo_v1_dataset.process()
+
         # test_map_features(csv_path, am)
         # print("✅ Map features test passed!")
         

@@ -78,33 +78,15 @@ class LocalEncoder(nn.Module):
             data[f'edge_attr_{t}'] = \
                 data['positions'][data[f'edge_index_{t}'][0], t] - data['positions'][data[f'edge_index_{t}'][1], t]
 
-        # Should be temporal data object but for now we will use dictionary
-        # print("Data at edge index at t = 0")
-
-        # print("edge index and edge attr shape at t = 0")
-        # print(data['edge_index_0'].shape)
-        # print(data['edge_attr_0'].shape)
-        # breakpoint()
-
-
         out = [None] * self.historical_steps
         for t in range(self.historical_steps):
             edge_index, edge_attr = self.drop_edge(data[f'edge_index_{t}'], data[f'edge_attr_{t}'])
-
-            # print("TORCH edge_index.shape", edge_index.shape)
-            # print("TORCH edge_attr.shape", edge_attr.shape)
-            # print("TORCH x.shape", data['x'][:, t].shape)
-            # print("TORCH rotate_mat.shape", data['rotate_mat'].shape)
-            # print("TORCH bos_mask.shape", data['bos_mask'][:, t].shape)
-            # breakpoint()   
 
 
             out[t] = self.aa_encoder(x=data['x'][:, t], t=t, edge_index=edge_index, edge_attr=edge_attr,
                                         bos_mask=data['bos_mask'][:, t], rotate_mat=data['rotate_mat'])
 
 
-        # print("Stackinh out")
-        # breakpoint()
         out = torch.stack(out)  # [T, N, D]
         # print("Preparing for temporal encoder")
         # breakpoint()
