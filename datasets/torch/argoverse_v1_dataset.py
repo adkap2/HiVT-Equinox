@@ -26,6 +26,10 @@ from tqdm import tqdm
 
 from utils import TemporalData
 
+from einops import rearrange, reduce, repeat, einsum
+import jax
+
+from jaxtyping import Array, Float, Int, Scalar, Bool, PRNGKeyArray
 
 class ArgoverseV1Dataset(Dataset):
 
@@ -239,27 +243,67 @@ def process_argoverse(split: str,
 
 def get_lane_features(am: ArgoverseMap,
                       node_inds: List[int],
-                      node_positions: torch.Tensor,
-                      origin: torch.Tensor,
-                      rotate_mat: torch.Tensor,
+                      node_positions: Float[Array, "N 2"],
+                      origin: Float[Array, "2"],
+                      rotate_mat: Float[Array, "2 2"],
                       city: str,
-                      radius: float) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
-                                              torch.Tensor]:
+                      radius: float) -> Tuple[
+                Float[Array, "L 2"],      # lane_vectors
+                Float[Array, "L"],        # is_intersections
+                Float[Array, "L"],        # turn_directions
+                Float[Array, "L"],        # traffic_controls
+                Float[Array, "2 E"],      # lane_actor_index
+                Float[Array, "E 2"]       # lane_actor_vectors
+            ]:
     lane_positions, lane_vectors, is_intersections, turn_directions, traffic_controls = [], [], [], [], []
     lane_ids = set()
     for node_position in node_positions:
         lane_ids.update(am.get_lane_ids_in_xy_bbox(node_position[0], node_position[1], city, radius))
-    node_positions = torch.matmul(node_positions - origin, rotate_mat).float() # rotation matrix is used to rotate the node positions to the AV's frame of reference
+    # node_positions0 = torch.matmul(node_positions - origin, rotate_mat).float() # rotation matrix is used to rotate the node positions to the AV's frame of reference
+
+    node_positions = einsum(
+    node_positions - origin,  # [N, 2]
+    rotate_mat,              # [2, 2]
+    'n d, d r -> n r'       # n=nodes, d=input dim, r=rotated dim
+    ).float()
+
+
     for lane_id in lane_ids:
-        lane_centerline = torch.from_numpy(am.get_lane_segment_centerline(lane_id, city)[:, : 2]).float()
-        lane_centerline = torch.matmul(lane_centerline - origin, rotate_mat)
+        # lane_centerline0 = torch.from_numpy(am.get_lane_segment_centerline(lane_id, city)[:, : 2]).float()
+        # With einops
+        # Fixed version
+        lane_centerline = rearrange(
+            torch.from_numpy(am.get_lane_segment_centerline(lane_id, city)),  # [L, 3]
+            'l c -> l c',  # Keep original shape
+        ).float()[:, :2]  # Then slice first two columns`
+
+
+        # lane_centerline = torch.matmul(lane_centerline - origin, rotate_mat)
+        # With einops
+        lane_centerline = einsum(
+            lane_centerline - origin,  # [L, 2]
+            rotate_mat,               # [2, 2]
+            'l d, d r -> l r'        # l=lane points, d=input dim, r=rotated dim
+        )
+
         is_intersection = am.lane_is_in_intersection(lane_id, city)
         turn_direction = am.get_lane_turn_direction(lane_id, city)
         traffic_control = am.lane_has_traffic_control_measure(lane_id, city)
         lane_positions.append(lane_centerline[:-1])
         lane_vectors.append(lane_centerline[1:] - lane_centerline[:-1])
         count = len(lane_centerline) - 1
-        is_intersections.append(is_intersection * torch.ones(count, dtype=torch.uint8))
+        # is_intersections.append(is_intersection * torch.ones(count, dtype=torch.uint8))
+
+        # # With einops
+        is_intersections.append(
+            repeat(
+                torch.tensor(is_intersection, dtype=torch.uint8),  # single value
+                '-> c',                                           # expand to count positions
+                c=count
+            )
+        )
+
+
         if turn_direction == 'NONE':
             turn_direction = 0
         elif turn_direction == 'LEFT':
@@ -268,18 +312,79 @@ def get_lane_features(am: ArgoverseMap,
             turn_direction = 2
         else:
             raise ValueError('turn direction is not valid')
-        turn_directions.append(turn_direction * torch.ones(count, dtype=torch.uint8))
-        traffic_controls.append(traffic_control * torch.ones(count, dtype=torch.uint8))
-    lane_positions = torch.cat(lane_positions, dim=0)
-    lane_vectors = torch.cat(lane_vectors, dim=0)
-    is_intersections = torch.cat(is_intersections, dim=0)
-    turn_directions = torch.cat(turn_directions, dim=0)
-    traffic_controls = torch.cat(traffic_controls, dim=0)
+        # turn_directions.append(turn_direction * torch.ones(count, dtype=torch.uint8))
+        
+        # traffic_controls.append(traffic_control * torch.ones(count, dtype=torch.uint8))
 
-    lane_actor_index = torch.LongTensor(list(product(torch.arange(lane_vectors.size(0)), node_inds))).t().contiguous()
-    lane_actor_vectors = \
-        lane_positions.repeat_interleave(len(node_inds), dim=0) - node_positions.repeat(lane_vectors.size(0), 1)
-    mask = torch.norm(lane_actor_vectors, p=2, dim=-1) < radius
+        # With einops
+        turn_directions.append(
+            repeat(
+                torch.tensor(turn_direction, dtype=torch.uint8),  # single value
+                '-> c',                                          # expand to count positions
+                c=count
+            )
+        )
+
+        traffic_controls.append(
+            repeat(
+                torch.tensor(traffic_control, dtype=torch.uint8),  # single value
+                '-> c',                                           # expand to count positions
+                c=count
+            )
+        )
+
+    # lane_positions = torch.cat(lane_positions, dim=0)
+    # lane_vectors = torch.cat(lane_vectors, dim=0)
+    # is_intersections = torch.cat(is_intersections, dim=0)
+    # turn_directions = torch.cat(turn_directions, dim=0)
+    # traffic_controls = torch.cat(traffic_controls, dim=0)
+
+    # With einops
+    lane_positions = rearrange(lane_positions, 'list l xy -> (list l) xy')
+    lane_vectors = rearrange(lane_vectors, 'list l xy -> (list l) xy')
+    is_intersections = rearrange(is_intersections, 'list l -> (list l)')
+    turn_directions = rearrange(turn_directions, 'list l -> (list l)')
+    traffic_controls = rearrange(traffic_controls, 'list l -> (list l)')
+
+
+    # lane_actor_index = torch.LongTensor(list(product(torch.arange(lane_vectors.size(0)), node_inds))).t().contiguous()
+
+    # With einops
+    lane_indices = torch.arange(lane_vectors.size(0))
+    node_indices = torch.tensor(node_inds)
+
+    lane_actor_index = rearrange(
+        torch.cartesian_prod(lane_indices, node_indices),  # [P, 2] where P = L * N
+        'p two -> two p'                                   # transpose to [2, P]
+    ).contiguous()
+
+
+    # lane_actor_vectors = \
+    #     lane_positions.repeat_interleave(len(node_inds), dim=0) - node_positions.repeat(lane_vectors.size(0), 1)
+    
+    # With einops
+    lane_actor_vectors = (
+        repeat(
+            lane_positions,                # [L, 2]
+            'l xy -> (l n) xy',           # Repeat each lane position for each node
+            n=len(node_inds)              # n = number of nodes
+        ) - 
+        repeat(
+            node_positions,               # [N, 2]
+            'n xy -> (l n) xy',          # Repeat all node positions for each lane
+            l=lane_vectors.size(0)        # l = number of lanes
+        )
+    )
+
+    # mask = torch.norm(lane_actor_vectors, p=2, dim=-1) < radius
+
+    # With einops
+    mask = (reduce(
+        lane_actor_vectors ** 2,
+        'pairs coords -> pairs',          # More descriptive names
+        reduction='sum'
+    ).sqrt() < radius)
+
     lane_actor_index = lane_actor_index[:, mask]
     lane_actor_vectors = lane_actor_vectors[mask]
 
