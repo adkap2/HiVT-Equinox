@@ -66,19 +66,19 @@ class TemporalEncoder(eqx.Module):
         
     def __call__(self, x: jnp.ndarray, # [historical_steps=20, num_nodes=2, xy=2]
                   padding_mask: jnp.ndarray, # [num_nodes, historical_steps=20]
-                    *, key: PRNGKeyArray):
+                    *, key: PRNGKeyArray) -> jnp.ndarray: # [num_nodes, embed_dim=2]
         
         # TODO Do not do batching since it will be better to vmap over the agents
         # IF the timestep is padding we make it so it can only attend to itself
         
         # Add the padding token to the beginning of the sequence
-        x = jnp.vstack([self.padding_token, x]) # [1, hidden_dim]
+        # x = jnp.vstack([self.padding_token, x]) # [1, hidden_dim]
         x = jnp.vstack([x, self.cls_token])  # Will be (21, 2)
         x = x + self.pos_embed # [historical_steps+1=21, hidden_dim]
 
         # 1. First extend padding mask to include padding token and cls token
-        padding_mask = jnp.pad(padding_mask, ((0, 1),), constant_values=1)  # Add cls token -> [num_nodes, 20]
-        padding_mask = jnp.pad(padding_mask, ((1, 0),), constant_values=1)  # Add padding token at start -> [num_nodes, 21]
+        padding_mask = jnp.pad(~padding_mask, ((0, 1),), constant_values=1)  # Add cls token -> [num_nodes, 20]
+        # padding_mask = jnp.pad(padding_mask, ((1, 0),), constant_values=1)  # Add padding token at start -> [num_nodes, 21]
 
         # COmbine the src key padding mask and the padding mask Do with outer product and get conjuction between them
         new_mask = (jnp.outer(padding_mask, padding_mask))

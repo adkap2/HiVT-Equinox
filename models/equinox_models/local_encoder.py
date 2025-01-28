@@ -8,6 +8,7 @@ from .aa_encoder import AAEncoder
 from utils.equinox.equinox_utils import DistanceDropEdge
 from utils.equinox.graph_utils import subgraph
 from .temporal_encoder import TemporalEncoder
+from .al_encoder import ALEncoder
 from einops import rearrange
 class LocalEncoder(eqx.Module):
     """Local encoder module using Equinox."""
@@ -24,7 +25,7 @@ class LocalEncoder(eqx.Module):
     drop_edge: DistanceDropEdge
     aa_encoder: AAEncoder
     temporal_encoder: TemporalEncoder
-
+    al_encoder: ALEncoder
     def __init__(
         self,
         historical_steps: int,
@@ -60,7 +61,7 @@ class LocalEncoder(eqx.Module):
         self.local_radius = local_radius
         self.num_temporal_layers = num_temporal_layers
         # Split key for different components
-        k1, k2 = jax.random.split(key)
+        k1, k2, k3 = jax.random.split(key, 3)
 
         self.drop_edge = DistanceDropEdge(local_radius)
         self.aa_encoder = AAEncoder(
@@ -69,9 +70,12 @@ class LocalEncoder(eqx.Module):
             node_dim=node_dim,
             edge_dim=edge_dim,
             num_heads=num_heads,
-            key=k2,
+            key=k1,
         )
         self.temporal_encoder = TemporalEncoder(historical_steps=historical_steps, embed_dim=embed_dim, num_heads=num_heads, num_layers=num_temporal_layers, dropout=dropout, key=k2)
+    
+        self.al_encoder = ALEncoder(node_dim=node_dim,edge_dim=edge_dim, embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, key=k3)
+
     # @beartype
     def __call__(
         self, data: dict, *, key: PRNGKeyArray
@@ -111,13 +115,13 @@ class LocalEncoder(eqx.Module):
 
         #     outputs.append(out_t)
 
-        key1, key2 = jax.random.split(key)
+        key1, key2, key3 = jax.random.split(key, 3)
 
         def f(t):
             return self.aa_encoder(positions=data["positions"], t=t, bos_mask=data["bos_mask"], padding_mask=data["padding_mask"], key=key1)
         # Vmap
 
-        out = jax.vmap(f)(jnp.arange(1, self.historical_steps))
+        out = jax.vmap(f)(jnp.arange(1, self.historical_steps+1)) # TODO Confirm that this works
         
         # Process one timestep at a time
 
@@ -136,6 +140,19 @@ class LocalEncoder(eqx.Module):
         out = jax.vmap(temporal_encoder_f)(out, 
                                          padding_mask=data["padding_mask"][:, 1: self.historical_steps], 
                                          key=keys)
+        
+        # out = self.al_encoder(temporal_embeddings=out, positions=data["positions"], is_intersections=data["is_intersections"], turn_directions=data["turn_directions"], traffic_controls=data["traffic_controls"], key=key3)
+
+        is_intersections = data["is_intersections"]
+        turn_directions = data["turn_directions"]
+        traffic_controls = data["traffic_controls"]
+
+        def al_encoder_f(temporal_embeddings, positions, key):
+            return self.al_encoder(temporal_embeddings=temporal_embeddings, positions=positions, is_intersections=is_intersections, turn_directions=data["turn_directions"], traffic_controls=data["traffic_controls"], key=key)
+
+
+        keys = jax.random.split(key3, out.shape[0])
+        out = jax.vmap(al_encoder_f)(temporal_embeddings=out, positions=data["positions"][:, self.historical_steps-1:self.historical_steps, :], key=keys)
         # THIS Should be a vmap
         # breakpoint()
         return out

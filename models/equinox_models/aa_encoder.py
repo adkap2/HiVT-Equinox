@@ -148,7 +148,8 @@ class AAEncoder(eqx.Module):
 
         dpositions = positions[:, t, :] - positions[:, t - 1, :]
 
-        rot_mat = self.compute_rotation_matrix(idx,dpositions)
+        rot_mat = self.compute_rotation_matrix(dpositions[idx])  # [2]
+
 
         mask = self.create_neighbor_mask(
             idx,
@@ -227,7 +228,7 @@ class AAEncoder(eqx.Module):
 
         # Expand out by 1 element
 
-        nbr_embed = jax.vmap(lambda a, b: self._nbr_embed([a, b]))(
+        nbr_embed = jax.vmap(lambda *a: self._nbr_embed(a))(
             neighbors_xy, neighbors_dxy
         )
 
@@ -296,13 +297,11 @@ class AAEncoder(eqx.Module):
         return adj_mat
 
     def compute_rotation_matrix(self, 
-                                  idx: Int[Array, ""],
-                                  dpositions: Float[Array, "N xy=2"],
+                                  dpositions: Float[Array, "xy=2"],
                                   )-> Float[Array, "2 2"]:
         
         # TODO CHECK with Marcell if this is correct
         # Get displacement vector for the specific node
-        dpos = dpositions[idx]  # [2]
         
         # Compute rotation angle from displacement vector
         rotate_angle = jnp.arctan2(dpos[1], dpos[0])  # scalar
