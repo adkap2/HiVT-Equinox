@@ -18,6 +18,29 @@ from models.torch_models.local_encoder import LocalEncoder as TorchLocalEncoder
 from models.equinox_models.local_encoder import LocalEncoder as EquinoxLocalEncoder
 
 
+import pytest
+
+from utils import TemporalData
+
+
+# import argoverse
+
+# Go up two levels (from tests/ to parent directory) and then to argoverse-api
+argoverse_path = os.path.join(
+    os.path.dirname(  # up from tests/
+        os.path.dirname(  # up from HiVT-Equinox/
+            os.path.dirname(os.path.abspath(__file__))  # current file
+        )
+    ),
+    "argoverse-api"
+)
+sys.path.append(argoverse_path)
+
+from argoverse.map_representation.map_api import ArgoverseMap
+from datasets.torch.argoverse_v1_dataset import process_argoverse, ArgoverseV1Dataset
+
+
+
 def test_aa_encoder():
     # Set random seed
     key: PRNGKeyArray = jax.random.PRNGKey(0)
@@ -128,6 +151,10 @@ def test_aa_encoder():
     # Convert to respective frameworks
     batch_rot_mat_torch: torch.Tensor = torch.tensor(np_rot_mat) # [2, 2, 2]
 
+    is_intersections_torch = torch.zeros((2, historical_steps), dtype=torch.bool) # [2, 20]
+    turn_directions_torch = torch.zeros((2, historical_steps), dtype=torch.bool) # [2, 20]
+    traffic_controls_torch = torch.zeros((2, historical_steps), dtype=torch.bool) # [2, 20]
+
     data = {
         'positions': positions_torch,  # Shape: [num_nodes = 2, total_steps = 50, xy = 2]
         'edge_index': edge_index_torch,
@@ -137,6 +164,7 @@ def test_aa_encoder():
         'padding_mask': padding_mask_torch,
         'x': x_torch,
         'y': y_torch,
+        
     }
 
 
@@ -164,6 +192,10 @@ def test_aa_encoder():
 
     padding_mask_jax = jnp.array(padding_mask_torch.numpy()) # [N, 50]
 
+    is_intersections_jax = jnp.array(is_intersections_torch.numpy()) # [L]
+    turn_directions_jax = jnp.array(turn_directions_torch.numpy()) # [L]
+    traffic_controls_jax = jnp.array(traffic_controls_torch.numpy()) # [L]
+
 
     data_jax = {
         'bos_mask': bos_mask_jax,
@@ -180,14 +212,29 @@ def test_aa_encoder():
     # breakpoint()
 
     # Compare outputs
-    # print(f"[JAX] eqx_output shape: {eqx_output.shape}")
-    # print(f"[JAX] eqx_output first few values: {eqx_output[0, :5]}")
+    print(f"[JAX] eqx_output shape: {eqx_output.shape}")
+    print(f"[JAX] eqx_output first few values: {eqx_output[0, :5]}")
 
-    # print(f"[TORCH] torch_output shape: {torch_output.shape}")
-    # print(f"[TORCH] torch_output first few values: {torch_output[0, :5]}")
+    print(f"[TORCH] torch_output shape: {torch_output.shape}")
+    print(f"[TORCH] torch_output first few values: {torch_output[0, :5]}")
 
     # breakpoint()
 
 
+def test_local_encoder_with_argoverse():
+
+        # Print sample data info
+        kwargs = process_argoverse(
+            split='train',
+            raw_path=csv_path,
+            am=am,
+            radius=50.0
+        )
+
+        data = TemporalData(**kwargs)
+
+
+
 if __name__ == "__main__":
-    test_aa_encoder()
+    # test_aa_encoder()
+    test_local_encoder_with_argoverse()

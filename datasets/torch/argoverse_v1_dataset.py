@@ -85,7 +85,8 @@ class ArgoverseV1Dataset(Dataset):
             kwargs = process_argoverse(self._split, raw_path, am, self._local_radius)
             # Pass in the kwargs to create the temporal data from the dictionary of data
             data = TemporalData(**kwargs) # This is where temporal data is created
-            jax.debug.breakpoint()
+            print("data", data)
+            # jax.debug.breakpoint()
             torch.save(data, os.path.join(self.processed_dir, str(kwargs['seq_id']) + '.pt'))
 
     def len(self) -> int:
@@ -336,6 +337,7 @@ def get_lane_features(am: ArgoverseMap,
                 Float[Array, "2 E"],      # lane_actor_index
                 Float[Array, "E 2"]       # lane_actor_vectors
             ]:
+    #TODO store this tuple return type eqx module (Maybe lane features object)
     lane_positions, lane_vectors, is_intersections, turn_directions, traffic_controls = [], [], [], [], []
     lane_ids = set()
     for node_position in node_positions:
@@ -355,7 +357,6 @@ def get_lane_features(am: ArgoverseMap,
     rotate_mat,              # [2, 2]
     'n d, d r -> n r'       # n=nodes, d=input dim, r=rotated dim
     ).float()
-
 
     for lane_id in lane_ids:
         # lane_centerline0 = torch.from_numpy(am.get_lane_segment_centerline(lane_id, city)[:, : 2]).float()
