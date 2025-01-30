@@ -59,7 +59,8 @@ class TemporalEncoder(eqx.Module):
         # TODO make this an embedding using the eqx.nn.Embedding
         self.pos_embed = jax.random.normal(keys[3], (historical_steps + 1, self.embed_dim)) # [historical_steps+1=21, 1, embed_dim=2]    
         self.attn_mask = self.generate_square_subsequent_mask(historical_steps + 1) # [historical_steps+1=21, historical_steps+1=21]
-        
+        # self.attn_mask = self.generate_square_subsequent_mask(historical_steps) # [historical_steps =20, historical_steps=20]
+
         
         #TODO Add INIT weights
 
@@ -76,13 +77,20 @@ class TemporalEncoder(eqx.Module):
         x = jnp.vstack([x, self.cls_token])  # Will be (21, 2)
         x = x + self.pos_embed # [historical_steps+1=21, hidden_dim]
 
+
         # 1. First extend padding mask to include padding token and cls token
         padding_mask = jnp.pad(~padding_mask, ((0, 1),), constant_values=1)  # Add cls token -> [num_nodes, 20]
-        # padding_mask = jnp.pad(padding_mask, ((1, 0),), constant_values=1)  # Add padding token at start -> [num_nodes, 21]
+        # padding_mask = jnp.pad(~padding_mask, ((1, 0),), constant_values=1)  # Add padding token at start -> [num_nodes, 21]
 
         # COmbine the src key padding mask and the padding mask Do with outer product and get conjuction between them
-        new_mask = (jnp.outer(padding_mask, padding_mask))
-        new_mask = jnp.logical_and(new_mask, self.attn_mask)
+        # new_mask = (jnp.outer(padding_mask, padding_mask))
+        # new_mask = jnp.logical_and(new_mask, self.attn_mask)
+       
+        # Compute new_mask
+        new_mask = jnp.logical_and(
+            jnp.outer(padding_mask, padding_mask),  # Shape: [21, 21]
+            self.attn_mask  # Shape: [21, 21]
+        )
         out = self.transformer_encoder(x=x, key=key, mask=new_mask)
         return out[-1] # [num_nodes=2, embed_dim=2]
     
@@ -144,6 +152,7 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
         # x = x + self._sa_block(vmapped_norm1(x), attn_mask=src_mask, key=key)
 
         x = vmapped_norm1(x)
+
         x = x + self.self_attn(query=x,key_=x,value=x,mask=src_mask,key=key1)
         x = x + self._ff_block(vmapped_norm2(x), key=key2)
 

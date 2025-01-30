@@ -228,9 +228,10 @@ class AAEncoder(eqx.Module):
 
         # Expand out by 1 element
 
-        nbr_embed = jax.vmap(lambda *a: self._nbr_embed(a))(
+        nbr_embed = jax.vmap(lambda *features: self._nbr_embed(list(features)))(
             neighbors_xy, neighbors_dxy
         )
+
 
         # center_embed = jax.vmap(lambda x: self.norm1(x))(center_embed)
 
@@ -304,7 +305,7 @@ class AAEncoder(eqx.Module):
         # Get displacement vector for the specific node
         
         # Compute rotation angle from displacement vector
-        rotate_angle = jnp.arctan2(dpos[1], dpos[0])  # scalar
+        rotate_angle = jnp.arctan2(dpositions[1], dpositions[0])  # scalar
         
         # Compute sin and cos values
         sin_val = jnp.sin(rotate_angle)  # scalar

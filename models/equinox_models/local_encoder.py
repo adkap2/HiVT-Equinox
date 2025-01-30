@@ -74,7 +74,7 @@ class LocalEncoder(eqx.Module):
         )
         self.temporal_encoder = TemporalEncoder(historical_steps=historical_steps, embed_dim=embed_dim, num_heads=num_heads, num_layers=num_temporal_layers, dropout=dropout, key=k2)
     
-        self.al_encoder = ALEncoder(node_dim=node_dim,edge_dim=edge_dim, embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, key=k3)
+        self.al_encoder = ALEncoder(node_dim=node_dim,edge_dim=edge_dim, embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, max_radius=local_radius, key=k3)
 
     # @beartype
     def __call__(
@@ -138,21 +138,37 @@ class LocalEncoder(eqx.Module):
         # Split keys for each element in the batch
         keys = jax.random.split(key2, out.shape[0])  # Split for each batch element
         out = jax.vmap(temporal_encoder_f)(out, 
-                                         padding_mask=data["padding_mask"][:, 1: self.historical_steps], 
+                                         padding_mask=data["padding_mask"][:, 1: self.historical_steps+1], 
                                          key=keys)
         
         # out = self.al_encoder(temporal_embeddings=out, positions=data["positions"], is_intersections=data["is_intersections"], turn_directions=data["turn_directions"], traffic_controls=data["traffic_controls"], key=key3)
 
-        is_intersections = data["is_intersections"]
-        turn_directions = data["turn_directions"]
-        traffic_controls = data["traffic_controls"]
+        is_intersection = data["is_intersections"]
+        turn_direction = data["turn_directions"]
+        traffic_control = data["traffic_controls"]
 
-        def al_encoder_f(temporal_embeddings, positions, key):
-            return self.al_encoder(temporal_embeddings=temporal_embeddings, positions=positions, is_intersections=is_intersections, turn_directions=data["turn_directions"], traffic_controls=data["traffic_controls"], key=key)
+        lane_vectors = data["lane_vectors"]
+        lane_actor_index = data["lane_actor_index"]
+        lane_actor_vectors = data["lane_actor_vectors"]
+
+
+        positions = data["positions"][:, self.historical_steps-1:self.historical_steps+1, :]
+        # pos1 = positions[:, self.historical_steps-1:self.historical_steps, :]
+        # jax.debug.breakpoint()
+
+        # Or alternatively, if you need to compute from scratch:
+        L = lane_vectors.shape[0]  # number of lanes
+        lane_start = jnp.zeros((L, 2))  # [L, 2]
+        lane_end = lane_vectors  # [L, 2]
+
+        
+
+        def al_encoder_f(temporal_embeddings, key):
+            return self.al_encoder(temporal_embeddings=temporal_embeddings, positions=positions, lane_start=lane_start, lane_end=lane_end, is_intersection=is_intersection, turn_direction=turn_direction, traffic_control=traffic_control, key=key)
 
 
         keys = jax.random.split(key3, out.shape[0])
-        out = jax.vmap(al_encoder_f)(temporal_embeddings=out, positions=data["positions"][:, self.historical_steps-1:self.historical_steps, :], key=keys)
+        out = jax.vmap(al_encoder_f)(temporal_embeddings=out, key=keys)
         # THIS Should be a vmap
         # breakpoint()
         return out

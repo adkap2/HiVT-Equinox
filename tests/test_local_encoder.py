@@ -223,6 +223,10 @@ def test_aa_encoder():
 
 def test_local_encoder_with_argoverse():
 
+
+        csv_path = "datasets/train/data/1.csv"
+        am = ArgoverseMap()
+        
         # Print sample data info
         kwargs = process_argoverse(
             split='train',
@@ -232,6 +236,50 @@ def test_local_encoder_with_argoverse():
         )
 
         data = TemporalData(**kwargs)
+
+        # Convert to dictionary
+        data_dict = data.to_dict()
+
+        # print(data_dict)
+
+        # Go into each key and convert to jax array might have to convert to numpy first
+        for key, value in data_dict.items():
+            if isinstance(value, torch.Tensor):
+                data_dict[key] = jnp.array(value.numpy())
+            elif isinstance(value, np.ndarray):
+                data_dict[key] = jnp.array(value)
+            else:
+                # Leave as is
+                pass
+
+        print(data_dict)
+
+
+        historical_steps = 20
+        node_dim = 2
+        edge_dim = 2
+        embed_dim = 2
+        num_heads = 2
+        dropout = 0.1
+        num_temporal_layers = 4
+
+        key = jax.random.PRNGKey(0)
+        eqx_model = EquinoxLocalEncoder(
+            historical_steps=historical_steps,
+            node_dim=node_dim,
+            edge_dim=edge_dim,
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+        key=key,
+        num_temporal_layers=num_temporal_layers,
+    )
+
+        eqx_output = eqx_model(data_dict, key=key)
+
+        print(eqx_output)
+
+
 
 
 
