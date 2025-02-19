@@ -90,22 +90,3 @@ class DistanceDropEdge(eqx.Module):
         
         return new_edge_index, new_edge_attr
 
-# def init_linear(key: jax.random.PRNGKey, 
-#                 shape: Tuple[int, ...], 
-#                 dtype: jnp.dtype = jnp.float32) -> Array:
-#     """Initialize linear layer weights using Xavier uniform."""
-#     bound = jnp.sqrt(6.0 / sum(shape))
-#     return jax.random.uniform(key, shape=shape, minval=-bound, maxval=bound, dtype=dtype)
-
-# def init_embedding(key: jax.random.PRNGKey, 
-#                    shape: Tuple[int, ...], 
-#                    dtype: jnp.dtype = jnp.float32) -> Array:
-#     """Initialize embedding weights using normal distribution."""
-#     return jax.random.normal(key, shape=shape, dtype=dtype) * 0.02
-
-# def init_layer_norm(shape: Tuple[int, ...], 
-#                     dtype: jnp.dtype = jnp.float32) -> Tuple[Array, Array]:
-#     """Initialize LayerNorm parameters."""
-#     weight = jnp.ones(shape, dtype=dtype)
-#     bias = jnp.zeros(shape, dtype=dtype)
-#     return weight, bias

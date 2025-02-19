@@ -105,11 +105,10 @@ class MultipleInputEmbedding(eqx.Module):
     ) -> jnp.ndarray:  # Shape: [batch_size, out_channel]
         # print("EQUINOX continuous inputs :" , continuous_inputs)
         # TODO why is this different than torch?
-        # Its a list but only contains two elements so specialize to that 
+        # Its a list but only contains two elements so specialize to that
 
         # if len(continuous_inputs) == 2:
         #     continuous_inputs = continuous_inputs[0], continuous_inputs[1]
-        
 
         for i in range(len(self.input_networks)):
             continuous_inputs[i] = self.input_networks[i](continuous_inputs[i])
