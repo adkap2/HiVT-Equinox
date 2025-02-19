@@ -48,7 +48,8 @@ class ALEncoder(eqx.Module):
         keys = jax.random.split(key, 10)
 
 
-        self._lane_embed = MultipleInputEmbedding(in_channels=[node_dim, edge_dim], out_channel=embed_dim, key=keys[0])
+        self._lane_embed = SingleInputEmbedding(in_channel=7, out_channel=embed_dim, key=keys[0]) #TODO currently hardcoded to 7 features
+        # self._lane_embed = MultipleInputEmbedding(in_channels=[node_dim, edge_dim], out_channel=embed_dim, key=keys[0])
         self._is_intersection_embed = jax.random.normal(key, (2, embed_dim)) * 0.02  # matches PyTorch's std=.02    
         self._turn_direction_embed = jax.random.normal(keys[1], (3, embed_dim)) * 0.02  # matches PyTorch's std=.02
         self._traffic_control_embed = jax.random.normal(keys[2], (2, embed_dim)) * 0.02  # matches PyTorch's std=.02
@@ -92,10 +93,9 @@ class ALEncoder(eqx.Module):
         )
 
         return outputs
+    
 
-
-
-
+    # Consider making data dictionary more heirachical
 
     def hub_spoke_nn(
             self,
@@ -135,30 +135,31 @@ class ALEncoder(eqx.Module):
         # Apply rotation to the lane vectors agent_lane_rel_pos, and lane_vecs
 
         # So lan_vecs is a L x 2 array and rotate_mat is a 2 x 2 array
-        rotated_lane_vecs = jnp.einsum('ij,lj->li', rotate_mat, lane_vecs)
+        # rotated_lane_vecs = jnp.einsum('ij,lj->li', rotate_mat, lane_vecs)
+
+        rotated_lane_vecs = jax.vmap(lambda lane_vec: rotate_mat @ lane_vec)(lane_vecs)
 
         # agent_lane_rel_pos is a L x 2 array and rotate_mat is a 2 x 2 array
-        rotated_agent_lane_rel_pos = jnp.einsum('ij,lj->li', rotate_mat, agent_lane_rel_pos)
+        # rotated_agent_lane_rel_pos = jnp.einsum('ij,lj->li', rotate_mat, agent_lane_rel_pos)
+
+        rotated_agent_lane_rel_pos = jax.vmap(lambda agent_lane_rel_pos: rotate_mat @ agent_lane_rel_pos)(agent_lane_rel_pos)
 
 
         # DO i need to expand out is_intersection, turn_direction, traffic_control? to have the same shape as rotated_lane_vecs?
 
-        # For [L, 2] shape:
-        is_intersection = repeat(is_intersection, 'L -> L 2')
-        turn_direction = repeat(turn_direction, 'L -> L 2')
-        traffic_control = repeat(traffic_control, 'L -> L 2')
+        # # For [L, 2] shape:
+        is_intersection = repeat(is_intersection, 'L -> L 1')
+        turn_direction = repeat(turn_direction, 'L -> L 1')
+        traffic_control = repeat(traffic_control, 'L -> L 1')
+
+        # Concatenate the features
+        features = jnp.hstack([rotated_lane_vecs, rotated_agent_lane_rel_pos, is_intersection, turn_direction, traffic_control])
+
+
 
         # jax.debug.breakpoint()
-        lane_features = jax.vmap(lambda *features: self._lane_embed(list(features)))(
-            rotated_lane_vecs,
-            rotated_agent_lane_rel_pos,
-            is_intersection,
-            turn_direction,
-            traffic_control
-        )
+        lane_features = jax.vmap(self._lane_embed)(features)
 
-        # Apply the neighbor mask
-        lane_features = jnp.where(neighbor_mask[:, None], lane_features, 0.0)
 
         # Apply attention
         query = rearrange(temporal_embeddings, "d -> 1 d")
@@ -181,12 +182,6 @@ class ALEncoder(eqx.Module):
         output = output + self.mlp(self.norm2(output), key=key)
 
         return output
-
-        # lane_features = self.lane_embed(lane_pos, rel_pos,  rotate_mat, is_intersection, turn_direction, traffic_control)
-
-
-
-        
 
 
     def create_rotate_mat(self, dpos: Float[Array, "xy=2"]) -> Float[Array, "2 2"]:
