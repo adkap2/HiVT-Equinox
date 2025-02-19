@@ -125,18 +125,19 @@ class GlobalInteractor(eqx.Module):
 
         # Vmap over all nodes as hubs
         def f(idx, key):
-            return self.hub_spoke_attention(
+            result = self.hub_spoke_attention(
                 idx=idx,
                 positions=positions,
                 local_embed=local_embed,
                 t=t,
                 key=key
             )
+            return result[idx]
         
         outputs = jax.vmap(f)(node_indices, keys)
-        # TODO I need to handle this rearange better. I dont feel comfortable with the shapes here
-        # This is a (9,2,9,2)
-        # jax.debug.breakpoint()
+
+        outputs = outputs.transpose(1, 0, 2)  # [F, N, 2]
+        jax.debug.breakpoint()
         return outputs
 
     def hub_spoke_attention(self,
@@ -200,29 +201,12 @@ class GlobalInteractor(eqx.Module):
         vmapped_multihead_proj = jax.vmap(self.multihead_proj)
         
         output = vmapped_multihead_proj(output)
-        # Explode the output to the right shape
-        
-        # TODO I need to handle this rearange better. I dont feel comfortable with the shapes here
-        output = rearrange(output, 'n (f d) -> f n d', f=self.num_modes)
-        # THis is a (2,9,2)
-
-        # jax.debug.breakpoint()
-
+        # TODO I need to handle this rearange better.
+        output = rearrange(output, 'n (m d) -> n m d', 
+                      m=self.num_modes,
+                      d=self.embed_dim)  # [N, M, D]        # THis is a (2,9,2)
 
         return output
-
-
-    def compute_rotation_matrix(self, velocity: Float[Array, "2"]) -> Float[Array, "2 2"]:
-        angle = jnp.arctan2(velocity[1], velocity[0])
-        cos_a = jnp.cos(angle)
-        sin_a = jnp.sin(angle)
-        rotate_mat = jnp.zeros((2, 2))
-        rotate_mat = rotate_mat.at[0, 0].set(cos_a)
-        rotate_mat = rotate_mat.at[0, 1].set(-sin_a)
-        rotate_mat = rotate_mat.at[1, 0].set(sin_a)
-        rotate_mat = rotate_mat.at[1, 1].set(cos_a)
-        return rotate_mat
-
 
 
 class GlobalInteractorLayer(eqx.Module):
