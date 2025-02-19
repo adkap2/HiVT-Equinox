@@ -16,7 +16,7 @@ from models.equinox_models.aa_encoder import AAEncoder as EquinoxAAEncoder
 from models.torch_models.aa_encoder import TorchAAEncoder
 from models.torch_models.local_encoder import LocalEncoder as TorchLocalEncoder
 from models.equinox_models.local_encoder import LocalEncoder as EquinoxLocalEncoder
-
+from models.equinox_models.global_interactor import GlobalInteractor as EquinoxGlobalInteractor
 
 import pytest
 
@@ -252,7 +252,7 @@ def test_local_encoder_with_argoverse():
                 # Leave as is
                 pass
 
-        print(data_dict)
+        # print(data_dict)
 
 
         historical_steps = 20
@@ -264,7 +264,7 @@ def test_local_encoder_with_argoverse():
         num_temporal_layers = 4
 
         key = jax.random.PRNGKey(0)
-        eqx_model = EquinoxLocalEncoder(
+        eqx_local_encoder = EquinoxLocalEncoder(
             historical_steps=historical_steps,
             node_dim=node_dim,
             edge_dim=edge_dim,
@@ -275,9 +275,27 @@ def test_local_encoder_with_argoverse():
         num_temporal_layers=num_temporal_layers,
     )
 
-        eqx_output = eqx_model(data_dict, key=key)
+        local_encoder_output = eqx_local_encoder(data_dict, key=key)
+        
 
-        print(eqx_output)
+        num_modes = 2
+
+
+        key = jax.random.PRNGKey(1)
+        # TODO add global interactor    
+        eqx_global_interactor = EquinoxGlobalInteractor(
+            historical_steps=historical_steps,
+            embed_dim=embed_dim,
+            edge_dim=edge_dim,
+            num_modes=num_modes,
+            num_heads=num_heads,
+            num_layers=num_temporal_layers,
+            dropout=dropout,
+            key=key,
+        )
+
+        eqx_global_interactor_output = eqx_global_interactor(data = data_dict, local_embed = local_encoder_output, key=key)
+
 
 
 
