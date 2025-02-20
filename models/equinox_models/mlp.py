@@ -7,8 +7,6 @@ from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputE
 
 from einops import rearrange, reduce
 
-# Import jnp
-
 # Import beartype
 from beartype import beartype
 from typing import List, Tuple, Optional
@@ -18,15 +16,14 @@ from utils import print_array_type
 # Add jax type signature to inputs and outputs
 
 
-
-
+@beartype
 class ReLU(eqx.Module):
-    def __call__(self, x: Float[Array, "batch=2 8"], key=None):
+    def __call__(self, x: Float[Array, "hidden_dim=8"], key=None):
         output = jax.nn.relu(x)  # Float[Array, "batch 8"]
         return output
 
 
-
+@beartype
 class MLP(eqx.Module):
     linear1: eqx.nn.Linear
     linear2: eqx.nn.Linear
@@ -44,8 +41,12 @@ class MLP(eqx.Module):
 
     # @beartype
     def __call__(
-        self, nodes, key  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
-    ) -> Float[Array, "batch=2 node_dim=2"]:  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
+        self,
+        nodes: Float[Array, "node_dim=2"],
+        key,  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
+    ) -> Float[
+        Array, "node_dim=2"
+    ]:  # Shape: [batch_size, node_dim=2] -> Float[Array, "2 2"]
 
         key1, key2 = jax.random.split(key)
         nodes = self.linear1(nodes)  # Float[Array, "batch=2 num_heads=8"]

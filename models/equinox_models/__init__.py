@@ -6,11 +6,11 @@ from models.equinox_models.local_encoder import LocalEncoder
 from models.equinox_models.al_encoder import ALEncoder
 
 __all__ = [
-    'SingleInputEmbedding',
-    'AAEncoder',
-    'MLP',
-    'ReLU',
-    'TemporalEncoder',
-    'LocalEncoder',
-    'ALEncoder'
-] 
+    "SingleInputEmbedding",
+    "AAEncoder",
+    "MLP",
+    "ReLU",
+    "TemporalEncoder",
+    "LocalEncoder",
+    "ALEncoder",
+]

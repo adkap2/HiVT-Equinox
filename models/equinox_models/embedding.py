@@ -15,6 +15,7 @@ class ReLU(eqx.Module):
         return jax.nn.relu(x)
 
 
+@beartype
 class SingleInputEmbedding(eqx.Module):
     layers: list
 
@@ -47,13 +48,13 @@ class SingleInputEmbedding(eqx.Module):
         )
 
     # Functions takes in an in channel dim vector and outputs an out channel dim vector
-    @beartype
     def __call__(
         self, x: jnp.ndarray  # Float[Array, "batch 2"]
     ) -> jnp.ndarray:  # Add type signature
         return self.layers(x)
 
 
+@beartype
 class MultipleInputEmbedding(eqx.Module):
     input_networks: list
     aggr_embed: eqx.Module
@@ -95,7 +96,6 @@ class MultipleInputEmbedding(eqx.Module):
             ]
         )
 
-    @beartype
     def __call__(
         self,
         continuous_inputs: List[jnp.ndarray],  # Shape: [batch_size, in_channel]
