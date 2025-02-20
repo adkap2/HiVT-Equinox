@@ -86,8 +86,6 @@ class LocalEncoder(eqx.Module):
         )
 
         self.al_encoder = ALEncoder(
-            node_dim=node_dim,
-            edge_dim=edge_dim,
             embed_dim=embed_dim,
             num_heads=num_heads,
             dropout=dropout,
@@ -123,9 +121,7 @@ class LocalEncoder(eqx.Module):
                 key=key1,
             )
 
-        out = jax.vmap(f)(
-            jnp.arange(1, self.historical_steps + 1)
-        )  # TODO Confirm that this works
+        out = jax.vmap(f)(jnp.arange(1, self.historical_steps + 1))
 
         # Move dimenison N to front
         out = rearrange(out, "t n d -> n t d")
@@ -167,8 +163,6 @@ class LocalEncoder(eqx.Module):
             )
 
         keys = jax.random.split(key3, out.shape[0])
-        out = jax.vmap(al_encoder_f)(
-            temporal_embedding=out, positions=positions, key=keys
-        )
+        out = jax.vmap(al_encoder_f)(temporal_embedding=out, positions=positions, key=keys)
 
         return out

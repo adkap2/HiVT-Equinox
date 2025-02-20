@@ -3,15 +3,13 @@ import jax
 import jax.numpy as jnp
 from typing import Optional, Tuple, List
 from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool
-from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputEmbedding
+from models.equinox_models.embedding import SingleInputEmbedding
 
 from einops import rearrange, repeat, reduce
 
-# Import beartype
 from beartype import beartype
-from typing import List, Tuple, Optional
 
-from models.equinox_models.mlp import MLP, ReLU
+from models.equinox_models.mlp import MLP
 
 
 @beartype
@@ -40,8 +38,6 @@ class ALEncoder(eqx.Module):
 
     def __init__(
         self,
-        node_dim: int,
-        edge_dim: int,
         embed_dim: int,
         num_heads: int,
         dropout: float,
@@ -124,7 +120,7 @@ class ALEncoder(eqx.Module):
                 is_intersection,
                 turn_direction,
                 traffic_control,
-            ]
+            ]  # [L, 10]
         )
 
         lane_features = jax.vmap(self._lane_embed)(features)
@@ -147,7 +143,7 @@ class ALEncoder(eqx.Module):
 
         return output
 
-    def create_rotate_mat(self, dpos: Float[Array, "xy=2"]) -> Float[Array, "2 2"]:
+    def create_rotate_mat(self, dpos: Float[Array, "xy=2"]) -> Float[Array, "xy=2 xy=2"]:
         """Create rotation matrix from displacement vector.
 
         Args:

@@ -3,25 +3,14 @@ import jax
 import jax.numpy as jnp
 from typing import Optional, Tuple, List
 from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool
-from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputEmbedding
 
 from einops import rearrange, repeat, reduce
 
-# Import beartype
 from beartype import beartype
-from typing import List, Tuple, Optional
-
-from utils import print_array_type
-
-
-# Looking at BERT encoder, we take the sequence and output the dictionary array except we don't want that output
-# We want
 
 @beartype
 class TransformerEncoder(eqx.Module):
-    # ... existing TransformerEncoder implementation ...
     pass
-
 
 @beartype
 class EquinoxTemporalEncoderLayer(eqx.Module):
@@ -67,56 +56,39 @@ class TemporalEncoder(eqx.Module):
             key=keys[0],
             num_layers=self.num_layers,
         )
-        self.padding_token = jax.random.normal(
-            keys[1], (1, self.embed_dim)
-        )  # [historical_steps=20, 1, embed_dim=2]
+        self.padding_token = jax.random.normal(keys[1], (1, self.embed_dim))
 
         # TODO make this an embedding using the eqx.nn.Embedding
-        self.cls_token = jax.random.normal(
-            keys[2], (1, self.embed_dim)
-        )  # [1, 1, embed_dim=2]
+        self.cls_token = jax.random.normal(keys[2], (1, self.embed_dim))
         # TODO make this an embedding using the eqx.nn.Embedding
-        self.pos_embed = jax.random.normal(
-            keys[3], (historical_steps + 1, self.embed_dim)
-        )  # [historical_steps+1=21, 1, embed_dim=2]
-        self.attn_mask = self.generate_square_subsequent_mask(
-            historical_steps + 1
-        )  # [historical_steps+1=21, historical_steps+1=21]
+        self.pos_embed = jax.random.normal(keys[3], (historical_steps + 1, self.embed_dim))
+        self.attn_mask = self.generate_square_subsequent_mask(historical_steps + 1)
 
         # TODO Add INIT weights
 
     def __call__(
         self,
-        x: Float[
-            Array, "historical_steps=20 d=2"
-        ],  # [historical_steps=20, num_nodes=2, xy=2]
-        padding_mask: Bool[
-            Array, "historical_steps=20"
-        ],  # [num_nodes, historical_steps=20]
+        x: Float[Array, "historical_steps=20 d=2"],
+        padding_mask: Bool[Array, "historical_steps=20"],
         *,
         key: PRNGKeyArray,
-    ) -> Float[Array, "d=2"]:  # [num_nodes, embed_dim=2]
-
-        # TODO Do not do batching since it will be better to vmap over the agents
-        # IF the timestep is padding we make it so it can only attend to itself
+    ) -> Float[Array, "d=2"]:
 
         # Add the padding token to the beginning of the sequence
         x = jnp.vstack([x, self.cls_token])  # Will be (21, 2)
         x = x + self.pos_embed  # [historical_steps+1=21, hidden_dim]
 
-        # 1. First extend padding mask to include padding token and cls token
         padding_mask = jnp.pad(
             ~padding_mask, ((0, 1),), constant_values=1
         )  # Add cls token -> [num_nodes, 20]
-        # padding_mask = jnp.pad(~padding_mask, ((1, 0),), constant_values=1)  # Add padding token at start -> [num_nodes, 21]
 
         # Compute new_mask
         new_mask = jnp.logical_and(
-            jnp.outer(padding_mask, padding_mask),  # Shape: [21, 21]
-            self.attn_mask,  # Shape: [21, 21]
+            jnp.outer(padding_mask, padding_mask),
+            self.attn_mask,
         )
         out = self.transformer_encoder(x=x, key=key, mask=new_mask)
-        return out[-1]  # [num_nodes=2, embed_dim=2]
+        return out[-1]
 
     @staticmethod
     def generate_square_subsequent_mask(seq_len: int) -> jnp.ndarray:
@@ -165,10 +137,8 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
 
     def __call__(
         self,
-        src: Float[Array, "t=20+1 d=2"],  # [historical_steps+1=21, d=2]
-        src_mask: Bool[
-            Array, "t=20+1 t=20+1"
-        ],  # [historical_steps+1=21, historical_steps+1=21] # TODO its a bools but i guess stored as 0,1??
+        src: Float[Array, "t=20+1 d=2"],
+        src_mask: Bool[Array, "t=20+1 t=20+1"],
         *,
         key: PRNGKeyArray,
     ) -> Float[Array, "t=20+1 d=2"]:
@@ -187,9 +157,9 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
 
     def _ff_block(
         self,
-        x: jnp.ndarray,  # [historical_steps+1=21, xy=2]
+        x: Float[Array, "t=20+1 d=2"],
         key: PRNGKeyArray,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, "t=20+1 d=2"]:
 
         # Split PRNG key for the two dropout operations
         key1, key2 = jax.random.split(key)
@@ -198,10 +168,10 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
         vmapped_linear1 = jax.vmap(self.linear1)
         vmapped_linear2 = jax.vmap(self.linear2)
 
-        x = vmapped_linear1(x)  # [historical_steps+1=21, embed_dim*4=8]
+        x = vmapped_linear1(x)
         x = jax.nn.relu(x)
         x = self.dropout0(x, key=key1)
-        x = vmapped_linear2(x)  # [21, 2, 2]
+        x = vmapped_linear2(x)
         x = self.dropout2(x, key=key2)
 
         return x
@@ -234,19 +204,15 @@ class TransformerEncoder(eqx.Module):
         # Create copies of the encoder layer
         self.layers = []
         for key in jax.random.split(key, num_layers):
-            self.layers.append(
-                EquinoxTemporalEncoderLayer(
-                    embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, key=key
-                )
-            )
+            self.layers.append(EquinoxTemporalEncoderLayer(embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, key=key))
 
     def __call__(
         self,
-        x: Float[Array, "historical_steps=20+1 d=2"],  # [historical_steps=20, xy=2]
-        mask: Bool[Array, "historical_steps=20+1 historical_steps=20+1"],
+        x: Float[Array, "t=20+1 d=2"],
+        mask: Bool[Array, "t=20+1 t=20+1"],
         *,
         key: PRNGKeyArray,
-    ) -> Float[Array, "historical_steps=20+1 d=2"]:
+    ) -> Float[Array, "t=20+1 d=2"]:
 
         # Split PRNG key for each layer if provided
         keys = jax.random.split(key, len(self.layers))

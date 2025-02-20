@@ -7,17 +7,11 @@ from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputE
 
 from einops import rearrange, reduce
 
-# Import jnp
-
-# Import beartype
 from beartype import beartype
-from typing import List, Tuple, Optional
-
-from utils import print_array_type
 
 # Add jax type signature to inputs and outputs
 
-from models.equinox_models.mlp import MLP, ReLU
+from models.equinox_models.mlp import MLP
 
 
 @beartype
@@ -53,7 +47,7 @@ class AAEncoder(eqx.Module):
         key: Optional[PRNGKeyArray] = None,
     ):
 
-        keys = jax.random.split(key, 12)
+        keys = jax.random.split(key, 9)
 
         self.max_radius = 50
         self.historical_steps = historical_steps
@@ -93,22 +87,16 @@ class AAEncoder(eqx.Module):
 
     def __call__(
         self,
-        positions: Float[
-            Array, "N t=50 xy=2"
-        ],  # Full trajectories [Num_nodes, timesteps, xy]
+        positions: Float[Array, "N t=50 xy=2"],  # Full trajectories [Num_nodes, timesteps, xy]
         bos_mask: Bool[Array, "N t=20"],  # Shape: [Numnodes, timesteps]
         padding_mask: Bool[Array, "N t=50"],  # Shape: [Numnodes, timesteps]
         t: Int[Scalar, ""],
         key: PRNGKeyArray,
-    ) -> Float[Array, "N hidden_dim"]:
-
-        # jax.debug.breakpoint()
+    ) -> Float[Array, "N d"]:
 
         # T is a trivial array
         # jax.debug.print("t {t}", t=t)
         # assert (t > 0).all(), "t must be greater than 0"
-
-        # TODO create a key split of position shape.siuze
         node_indices = jnp.arange(0, positions.shape[0])
 
         keys = jax.random.split(key, positions.shape[0])
@@ -120,10 +108,6 @@ class AAEncoder(eqx.Module):
 
         return outputs
 
-    # TODO make own classic nn
-
-    # Unit test example count number of neighbors, then computer avg distance
-    # Tell furthest neighbors
 
     def hub_spoke_nn(
         self,
@@ -133,12 +117,7 @@ class AAEncoder(eqx.Module):
         bos: Bool[Array, "N t=20"],
         padding_mask: Bool[Array, "N t=50"],
         key: PRNGKeyArray,
-    ) -> Float[Array, "hidden_dim"]:  # TODO complete function before adding this in
-
-        # Split it here the key
-        # TODO pass a key into this function
-
-        # assert (t > 0).all(), "t must be greater than 0"
+    ) -> Float[Array, "d"]:
 
         dpositions = positions[:, t, :] - positions[:, t - 1, :]
 
@@ -148,11 +127,9 @@ class AAEncoder(eqx.Module):
             idx, positions[:, t, :], padding_mask[:, t], bos[:, t]
         )  # Set all to true bool
 
-        # 3. Get hub and spoke data
         node_xy = positions[idx, t, :]  # hub position
         node_dxy = dpositions[idx, :]  # hub vel
 
-        # Apply operations on dense matrix, then filter out during the attention step
         neighbors_xy = positions[:, t, :]  # <--- spokes
         neighbors_dxy = (
             dpositions  # If node has no neighbors, this may happen then handle that
@@ -160,16 +137,12 @@ class AAEncoder(eqx.Module):
 
         neighbors_xy = jax.vmap(lambda xy: xy - node_xy)(neighbors_xy)
         del node_xy  # Don't need node_xy any more. It should be (0,0)
-        # node_dxy = node_dxy @ rot_mat # Want to make sure we are rotating to nodexy coordinates
         node_dxy = rot_mat @ node_dxy
 
-        # neighbors_xy = jax.vmap(lambda n: n @ rot_mat)(neighbors_xy)
         neighbors_xy = jax.vmap(lambda n: rot_mat @ n)(neighbors_xy)
 
         center_embed = self._center_embed(node_dxy)
         center_embed = self.norm1(center_embed)
-
-        # Expand out by 1 element
 
         nbr_embed = jax.vmap(lambda *features: self._nbr_embed(list(features)))(
             neighbors_xy, neighbors_dxy
@@ -177,7 +150,6 @@ class AAEncoder(eqx.Module):
 
         query = rearrange(center_embed, "d -> 1 d")
 
-        # MHA
         mha = self.attention(query=query, key_=nbr_embed, value=nbr_embed, mask=mask)
 
         new_msg = rearrange(mha, "1 d -> d")
@@ -186,8 +158,7 @@ class AAEncoder(eqx.Module):
 
         # It is a convex combination
         center_embed = new_msg + gate * (
-            self.lin_self(center_embed) - new_msg
-        )  # Shape: [hidden_dim = 2]
+            self.lin_self(center_embed) - new_msg)
 
         center_embed = self.norm2(center_embed)
 
@@ -200,7 +171,7 @@ class AAEncoder(eqx.Module):
     def create_neighbor_mask(
         self,
         idx: Int[Array, ""],
-        positions: Float[Array, "N 2"],
+        positions: Float[Array, "N xy=2"],
         padding_mask: Bool[Array, "N"],
         bos_mask: Bool[Array, "N"],
     ) -> Bool[Array, "1 N"]:
@@ -235,10 +206,7 @@ class AAEncoder(eqx.Module):
     def compute_rotation_matrix(
         self,
         dpositions: Float[Array, "xy=2"],
-    ) -> Float[Array, "2 2"]:
-
-        # TODO CHECK with Marcell if this is correct
-        # Get displacement vector for the specific node
+    ) -> Float[Array, "xy=2 xy=2"]:
 
         # Compute rotation angle from displacement vector
         rotate_angle = jnp.arctan2(dpositions[1], dpositions[0])  # scalar
@@ -255,7 +223,3 @@ class AAEncoder(eqx.Module):
         rotate_mat = rotate_mat.at[1, 1].set(cos_val)
 
         return rotate_mat
-
-
-# TODO write a function that creates an adjaceny matrix for time t it will then determine if padding mask is true or false. A node wont be connected if it is padded. Filter out things that are padding and things that are too far. This will tell us what are the hubs and spokes.
-# Ignore x and just use the positions.

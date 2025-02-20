@@ -3,8 +3,7 @@ import jax
 import jax.numpy as jnp
 from typing import Optional, Tuple, List
 from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool, Scalar
-from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputEmbedding
-from models.equinox_models.mlp import MLP
+from models.equinox_models.embedding import MultipleInputEmbedding
 from utils import TemporalData
 
 from einops import rearrange, repeat, reduce
@@ -60,13 +59,12 @@ class GlobalInteractor(eqx.Module):
         self.dropout = dropout
         self.edge_dim = edge_dim
 
-        keys = jax.random.split(key, 4)
+        keys = jax.random.split(key, 2)
 
         # TODO MOVE MULTI HEAD TO decoder
         self.multihead_proj = eqx.nn.Linear(
             embed_dim, num_modes * embed_dim, key=keys[0]
         )
-        # Can i skip MultipleInputEmbedding since we concernced with global attention between all agents attending to one another
         self.rel_embed = MultipleInputEmbedding(
             in_channels=[edge_dim, edge_dim], out_channel=embed_dim, key=keys[0]
         )
@@ -105,8 +103,7 @@ class GlobalInteractor(eqx.Module):
         # Vmap over all nodes as hubs
         def f(idx, key):
             result = self.hub_spoke_attention(
-                idx=idx, positions=positions, local_embed=local_embed, t=t, key=key
-            )
+                idx=idx, positions=positions, local_embed=local_embed, t=t, key=key)
             return result[idx]
 
         outputs = jax.vmap(f)(node_indices, keys)
@@ -119,7 +116,7 @@ class GlobalInteractor(eqx.Module):
         idx: Int[Array, ""],
         positions: Float[Array, "N t=50 xy=2"],
         local_embed: Float[Array, "N d"],
-        t: int,  # Changed from Int[Array, "..."] to Int[Scalar, ""]
+        t: int,
         key: PRNGKeyArray,
     ) -> Float[Array, "N d"]:
 
@@ -212,8 +209,7 @@ class GlobalInteractorLayer(eqx.Module):
         self.dropout = dropout
 
         self.self_attn = eqx.nn.MultiheadAttention(
-            num_heads=self.num_heads, query_size=self.embed_dim, key=keys[0]
-        )
+            num_heads=self.num_heads, query_size=self.embed_dim, key=keys[0])
 
         self.lin_self = eqx.nn.Linear(embed_dim, embed_dim, key=keys[1])
         self.lin_ih = eqx.nn.Linear(embed_dim, embed_dim, key=keys[2])
