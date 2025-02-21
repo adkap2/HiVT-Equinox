@@ -4,6 +4,7 @@ from models.equinox_models.mlp import MLP, ReLU
 from models.equinox_models.temporal_encoder import TemporalEncoder
 from models.equinox_models.local_encoder import LocalEncoder
 from models.equinox_models.al_encoder import ALEncoder
+from models.equinox_models.decoder import MLPDecoder
 
 __all__ = [
     "SingleInputEmbedding",
@@ -13,4 +14,5 @@ __all__ = [
     "TemporalEncoder",
     "LocalEncoder",
     "ALEncoder",
+    "MLPDecoder",
 ]

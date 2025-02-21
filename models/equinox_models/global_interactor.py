@@ -30,8 +30,6 @@ class GlobalInteractor(eqx.Module):
     dropout: float
     edge_dim: int
 
-    multihead_proj: eqx.nn.Linear
-
     rel_embed: MultipleInputEmbedding
     global_interactor_layers: List[GlobalInteractorLayer]
     norm: eqx.nn.LayerNorm
@@ -61,10 +59,7 @@ class GlobalInteractor(eqx.Module):
 
         keys = jax.random.split(key, 2)
 
-        # TODO MOVE MULTI HEAD TO decoder
-        self.multihead_proj = eqx.nn.Linear(
-            embed_dim, num_modes * embed_dim, key=keys[0]
-        )
+
         self.rel_embed = MultipleInputEmbedding(
             in_channels=[edge_dim, edge_dim], out_channel=embed_dim, key=keys[0]
         )
@@ -84,7 +79,6 @@ class GlobalInteractor(eqx.Module):
 
         self.norm2 = eqx.nn.LayerNorm(embed_dim)
 
-    @beartype
     def __call__(
         self,
         data: dict,  # TODO use TemporalData,
