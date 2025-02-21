@@ -17,7 +17,7 @@ from models.torch_models.aa_encoder import TorchAAEncoder
 from models.torch_models.local_encoder import LocalEncoder as TorchLocalEncoder
 from models.equinox_models.local_encoder import LocalEncoder as EquinoxLocalEncoder
 from models.equinox_models.global_interactor import GlobalInteractor as EquinoxGlobalInteractor
-
+from models.equinox_models.decoder import MLPDecoder as EquinoxMLPDecoder
 import pytest
 
 from utils import TemporalData
@@ -296,6 +296,26 @@ def test_local_encoder_with_argoverse():
 
         eqx_global_interactor_output = eqx_global_interactor(data = data_dict, local_embed = local_encoder_output, key=key)
 
+
+        eqx_decoder = EquinoxMLPDecoder(
+            local_channels=embed_dim,
+            global_channels=embed_dim,
+            future_steps=30,
+            num_modes=num_modes,
+            key=key,
+        )
+
+        out, pi = eqx_decoder(
+            local_embed=local_encoder_output,
+            global_embed=eqx_global_interactor_output,
+            key=key,
+        )
+
+        print(f"Equinox decoder output shape: {out.shape}")
+        print(f"Equinox decoder output first few values: {out[0, :5]}")
+
+        print(f"Equinox decoder pi shape: {pi.shape}")
+        print(f"Equinox decoder pi first few values: {pi[0, :5]}")
 
 
 
