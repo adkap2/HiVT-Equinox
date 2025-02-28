@@ -4,8 +4,6 @@ import jax.numpy as jnp
 import equinox as eqx
 import numpy as np
 
-# import einops
-
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,8 +15,7 @@ from models.torch_models.aa_encoder import TorchAAEncoder
 from models.torch_models.local_encoder import LocalEncoder as TorchLocalEncoder
 from models.equinox_models.local_encoder import LocalEncoder as EquinoxLocalEncoder
 from models.equinox_models.global_interactor import GlobalInteractor as EquinoxGlobalInteractor
-
-import pytest
+from models.equinox_models.decoder import MLPDecoder as EquinoxMLPDecoder
 
 from utils import TemporalData
 
@@ -47,23 +44,16 @@ def test_aa_encoder():
     torch.manual_seed(0)
 
     # Test parameters
-    batch_size: int = 2
-    # batch_size = 32
     historical_steps: int = 20
     node_dim: int = 2
-    # node_dim = 8
     edge_dim: int = 2
     embed_dim: int = 2
-    # embed_dim = 8
-    # num_heads = 8
     num_heads: int = 2
     dropout: float = 0.1
 
-    # num_nodes: int = 6
     num_nodes: int = 2
     num_temporal_layers: int = 4
 
-    # rotate_angles[node_idx] = torch.atan2(heading_vector[1], heading_vector[0]) # Rotation Angle of the Nodes
 
     # Create rotation angles (one per actor)
     rotate_angles = torch.tensor([np.pi/4, -np.pi/6])  # example angles: 45° and -30°
@@ -82,13 +72,6 @@ def test_aa_encoder():
     rotate_mat[:, 1, 1] = cos_vals    # R_11 = cos(θ)
 
 
-    # print("Rotation Matrix shape:", rotate_mat.shape)
-    # print("Rotation Matrix for first actor:\n", rotate_mat[0])
-    # print("Rotation Matrix for second actor:\n", rotate_mat[1])
-
-    # breakpoint()
-
-
 
     torch_model = TorchLocalEncoder(
         historical_steps=historical_steps, # int
@@ -99,14 +82,8 @@ def test_aa_encoder():
         dropout=dropout, # float
     ) 
 
-
-
-    # Test forward pass
-    # x_torch = torch.randn(batch_size, node_dim) # [2, 2]
-
     x_torch: torch.Tensor = torch.zeros(num_nodes, 50, 2, dtype=torch.float) # [N, 50, 2] # Position of the Nodes Local radius = 50
 
-    # x_torch = torch.zeros(batch_size, historical_steps, node_dim)
     for t in range(historical_steps):
         x_torch[0, t] = torch.tensor([t * 0.1, t * 0.1])  # diagonal movement
 
@@ -138,14 +115,9 @@ def test_aa_encoder():
         edge_index_torch.shape[1], edge_dim
     )  # Shape: [num_edges, embed_dim] # [2, 2]
 
-    # Fix: Create valid edge indices (must be within range of number of nodes)
-    # edge_index_torch = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)  # Only connect nodes 0 and 1
-    # edge_attr_torch = torch.randn(edge_index_torch.shape[1], edge_dim)  # Shape: [num_edges, edge_dim]
-
     bos_mask_torch = torch.zeros((2, historical_steps), dtype=torch.bool)  # [num_nodes, timesteps]
     bos_mask_torch[0, :] = True  # First node is BOS at all timesteps
     # Create identical rotation matrices for both frameworks
-    # np_rot_mat: np.ndarray = np.random.randn(batch_size, embed_dim, embed_dim).astype(np.float32) # [2, 2, 2]
     np_rot_mat: np.ndarray = rotate_mat.numpy() # [2, 2, 2]
 
     # Convert to respective frameworks
@@ -164,15 +136,12 @@ def test_aa_encoder():
         'padding_mask': padding_mask_torch,
         'x': x_torch,
         'y': y_torch,
-        
     }
-
 
     # TODO turn into temporal data object
     torch_output = torch_model(
         data,
     ) # Shape: [batch_size, embed_dim] -> [2, 2]
-
 
     eqx_model = EquinoxLocalEncoder(
         historical_steps=historical_steps,
@@ -192,11 +161,6 @@ def test_aa_encoder():
 
     padding_mask_jax = jnp.array(padding_mask_torch.numpy()) # [N, 50]
 
-    is_intersections_jax = jnp.array(is_intersections_torch.numpy()) # [L]
-    turn_directions_jax = jnp.array(turn_directions_torch.numpy()) # [L]
-    traffic_controls_jax = jnp.array(traffic_controls_torch.numpy()) # [L]
-
-
     data_jax = {
         'bos_mask': bos_mask_jax,
         'positions': positions_jax,
@@ -208,17 +172,12 @@ def test_aa_encoder():
         key=key,
     ) # Shape: [batch_size, embed_dim] -> [2, 2]
 
-    # print(f"Equinox output: {eqx_output}")
-    # breakpoint()
-
     # Compare outputs
     print(f"[JAX] eqx_output shape: {eqx_output.shape}")
     print(f"[JAX] eqx_output first few values: {eqx_output[0, :5]}")
 
     print(f"[TORCH] torch_output shape: {torch_output.shape}")
     print(f"[TORCH] torch_output first few values: {torch_output[0, :5]}")
-
-    # breakpoint()
 
 
 def test_local_encoder_with_argoverse():
@@ -251,8 +210,6 @@ def test_local_encoder_with_argoverse():
             else:
                 # Leave as is
                 pass
-
-        # print(data_dict)
 
 
         historical_steps = 20
@@ -296,6 +253,26 @@ def test_local_encoder_with_argoverse():
 
         eqx_global_interactor_output = eqx_global_interactor(data = data_dict, local_embed = local_encoder_output, key=key)
 
+
+        eqx_decoder = EquinoxMLPDecoder(
+            local_channels=embed_dim,
+            global_channels=embed_dim,
+            future_steps=30,
+            num_modes=num_modes,
+            key=key,
+        )
+
+        out, pi = eqx_decoder(
+            local_embed=local_encoder_output,
+            global_embed=eqx_global_interactor_output,
+            key=key,
+        )
+
+        print(f"Equinox decoder output shape: {out.shape}")
+        print(f"Equinox decoder output first few values: {out[0, :5]}")
+
+        print(f"Equinox decoder pi shape: {pi.shape}")
+        print(f"Equinox decoder pi first few values: {pi[0, :5]}")
 
 
 

@@ -3,23 +3,23 @@ import jax
 import jax.numpy as jnp
 from typing import List, Optional
 from beartype import beartype
-from jax._src.prng import (
-    PRNGKeyArray,
-)  # or from jaxlib.xla_extension import PrngKeyType
-from utils import print_array_type
+from jaxtyping import Array, Float
+
 
 
 @beartype
 class ReLU(eqx.Module):
-    def __call__(self, x, key=None):  # Float[Array, "batch 2"]
+    def __call__(self,
+                x: Float[Array, "d"],
+                key=None
+                ) -> Float[Array, "d"]:
         return jax.nn.relu(x)
 
 
+@beartype
 class SingleInputEmbedding(eqx.Module):
     layers: list
 
-    # @beartype
-    # TODO FAILS BEARTYPE
     def __init__(
         self,
         in_channel: int,
@@ -46,20 +46,16 @@ class SingleInputEmbedding(eqx.Module):
             ]
         )
 
-    # Functions takes in an in channel dim vector and outputs an out channel dim vector
-    @beartype
     def __call__(
-        self, x: jnp.ndarray  # Float[Array, "batch 2"]
-    ) -> jnp.ndarray:  # Add type signature
+        self, x: Float[Array, "d"]) -> Float[Array, "d"]:  # Add type signature
         return self.layers(x)
 
 
+@beartype
 class MultipleInputEmbedding(eqx.Module):
     input_networks: list
     aggr_embed: eqx.Module
 
-    # @beartype
-    # TODO FAILS BEARTYPE
     def __init__(
         self,
         in_channels: list[int],  # Shape: [node_dim, edge_dim] -> [2, 2]
@@ -95,20 +91,14 @@ class MultipleInputEmbedding(eqx.Module):
             ]
         )
 
-    @beartype
     def __call__(
         self,
-        continuous_inputs: List[jnp.ndarray],  # Shape: [batch_size, in_channel]
+        continuous_inputs: List[Float[Array, "d"]],  # Shape: [batch_size, in_channel]
         categorical_inputs: Optional[
-            List[jnp.ndarray]
-        ] = None,  # Shape: [batch_size, in_channel]
-    ) -> jnp.ndarray:  # Shape: [batch_size, out_channel]
-        # print("EQUINOX continuous inputs :" , continuous_inputs)
+            List[Float[Array, "d"]]
+        ] = None,
+    ) -> Float[Array, "d"]:
         # TODO why is this different than torch?
-        # Its a list but only contains two elements so specialize to that
-
-        # if len(continuous_inputs) == 2:
-        #     continuous_inputs = continuous_inputs[0], continuous_inputs[1]
 
         for i in range(len(self.input_networks)):
             continuous_inputs[i] = self.input_networks[i](continuous_inputs[i])
@@ -120,4 +110,4 @@ class MultipleInputEmbedding(eqx.Module):
         if categorical_inputs is not None:
             output += jnp.stack(categorical_inputs).sum(axis=0)
 
-        return self.aggr_embed(output)  # Float[Array, "batch 2"]
+        return self.aggr_embed(output)

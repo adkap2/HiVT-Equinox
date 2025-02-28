@@ -16,17 +16,10 @@ from torch_geometric.utils import subgraph
 from einops import rearrange, repeat
 from beartype import beartype
 
-from models.torch_models.embedding import (
-    TorchSingleInputEmbedding,
-    TorchMultipleInputEmbedding,
-)
 
 from utils import print_array_type
 
 # Add torch type signature
-
-
-
 
 class TorchTemporalEncoder(nn.Module):
 
