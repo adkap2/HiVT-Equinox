@@ -1,9 +1,7 @@
 import jax
 import jax.numpy as jnp
-import equinox as eqx
 import torch
 import numpy as np
-from einops import rearrange, repeat
 import sys
 import os
 
@@ -14,7 +12,6 @@ from models.equinox_models.global_interactor import GlobalInteractor as EquinoxG
 from models.equinox_models.decoder import MLPDecoder as EquinoxMLPDecoder
 from utils import TemporalData
 
-from jaxtyping import Array, Float, PRNGKeyArray
 from jax.random import PRNGKey
 
 from beartype import beartype
