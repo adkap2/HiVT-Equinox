@@ -1,18 +1,11 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from typing import Optional, Tuple, List
-from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool, Scalar
+from typing import List
+from jaxtyping import Array, Float, PRNGKeyArray, Int
 from models.equinox_models.embedding import MultipleInputEmbedding
-from utils import TemporalData
 
-from einops import rearrange, repeat, reduce
-
-# Import beartype
 from beartype import beartype
-
-# Add jax type signature to inputs and outputs
-
 
 class GlobalInteractorLayer(eqx.Module):
     pass

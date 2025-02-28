@@ -1,12 +1,10 @@
-from typing import Optional, Tuple
 import jax
 import jax.numpy as jnp
 import equinox as eqx
-from jaxtyping import Array, Float, Int, PRNGKeyArray
+from jaxtyping import Array, Float, PRNGKeyArray
 from beartype import beartype
 from .aa_encoder import AAEncoder
 from utils.equinox.equinox_utils import DistanceDropEdge
-from utils.equinox.graph_utils import subgraph
 from .temporal_encoder import TemporalEncoder
 from .al_encoder import ALEncoder
 from einops import rearrange

@@ -27,7 +27,6 @@ from tqdm import tqdm
 from utils import TemporalData
 
 from einops import rearrange, reduce, repeat, einsum
-import jax
 
 from jaxtyping import Array, Float, Int, Scalar, Bool, PRNGKeyArray
 
@@ -101,60 +100,43 @@ def process_argoverse(split: str,
                       am: ArgoverseMap,
                       radius: float) -> Dict:
     df: pd.DataFrame = pd.read_csv(raw_path) # Read the CSV file into a pandas DataFrame
-    # print("df", df.head())
-    # breakpoint()
 
     # filter out actors that are unseen during the historical time steps
     timestamps: List[int] = list(np.sort(df['TIMESTAMP'].unique())) # [Time_Steps] # There are multiple datapoints for the same timestamp as each one represents a different object/vehicle
-    # print("timestamps", timestamps)
-    # breakpoint()
+
     historical_timestamps: List[int] = timestamps[: 20] # [Historical_T] # Everything up to index 20. SO evertthing before 20 is in the past 
-    # print("historical_timestamps", historical_timestamps)
-    # breakpoint()
+
     historical_df: pd.DataFrame = df[df['TIMESTAMP'].isin(historical_timestamps)] # [Historical_N, Historical_T] # Historical Dataframe
-    # print("historical_df", historical_df.head())
-    # breakpoint()
+
     actor_ids: List[int] = list(historical_df['TRACK_ID'].unique()) # [N] # Unique actor IDs # This could be other vehicles
-    # print("actor_ids", actor_ids)
-    # breakpoint()
+
     df: pd.DataFrame = df[df['TRACK_ID'].isin(actor_ids)] # [N, T] # Dataframe # Number of Nodes Time Steps 
     num_nodes: int = len(actor_ids)
 
     av_df  = df[df['OBJECT_TYPE'] == 'AV'].iloc # av_df <pandas.core.indexing._iLocIndexer object at 0x314513860> # Focus on only AV object
-    # print("av_df", av_df)
-    # breakpoint()
+
     av_index: int = actor_ids.index(av_df[0]['TRACK_ID']) # Index of the AV in the actor_ids list
-    # print("av_index", av_index)
-    # breakpoint()
+
     agent_df: pd.DataFrame = df[df['OBJECT_TYPE'] == 'AGENT'].iloc # agent_df <pandas.core.indexing._iLocIndexer object at 0x314513860>
-    # print("agent_df", agent_df)
-    # breakpoint()
+
     agent_index: int = actor_ids.index(agent_df[0]['TRACK_ID']) # Index of the Agent in the actor_ids list 
-    # print("agent_index", agent_index)
-    # breakpoint()
+
     city: str = df['CITY_NAME'].values[0] # City Name
 
     # make the scene centered at AV
     origin: torch.Tensor  = torch.tensor([av_df[19]['X'], av_df[19]['Y']], dtype=torch.float) # [2] # Origin of the Scene # We start at timestep 20 which we will get xy coordinates as origin
-    # print("origin", origin)
-    # breakpoint()
+
     av_heading_vector: torch.Tensor = origin - torch.tensor([av_df[18]['X'], av_df[18]['Y']], dtype=torch.float) # [2] # Heading Vector of the AV Take the difference in trajectory from last xy to current xy at the 20th timestep
-    # print("av_heading_vector", av_heading_vector)
-    # breakpoint()
+
     theta: torch.Tensor = torch.atan2(av_heading_vector[1], av_heading_vector[0]) # [1] # Rotation Angle of the Scene # Get the angle 
-    # print("theta", theta)
-    # breakpoint()
+
     rotate_mat: torch.Tensor  = torch.tensor([[torch.cos(theta), -torch.sin(theta)],
                                [torch.sin(theta), torch.cos(theta)]]) # [2, 2] # Rotation Matrix # This is the rotation matrix that all neighbors need to be rotated to to be aligned with coordinate from of AV Vehicle
-    # print("rotate_mat", rotate_mat)
-    # breakpoint()
+
 
     # initialization
     x: torch.Tensor = torch.zeros(num_nodes, 50, 2,  dtype=torch.float) # [N, 50, 2] # Position of the Nodes Looking at total of 50 timesteps, 20 prior and 30 ahead and xy dim=2
-    # print("x", x) 
-    # breakpoint()
-    # edge_index: torch.Tensor = torch.LongTensor(list(permutations(range(num_nodes), 2))).t().contiguous() # [2, E] # Edge Index where E is the number of edges
-    
+
     # Create all pairs of nodes using einops
     source_nodes = repeat(
         torch.arange(num_nodes),
@@ -179,13 +161,9 @@ def process_argoverse(split: str,
     mask = edge_index[0] != edge_index[1]
     edge_index = edge_index[:, mask].contiguous()
 
-    
-    
-    # print("edge_index", edge_index)
-    # breakpoint()
+
     padding_mask: torch.Tensor = torch.ones(num_nodes, 50, dtype=torch.bool) # [N, 50] # Padding Mask
-    # print("padding_mask", padding_mask)
-    # breakpoint()
+
     bos_mask: torch.Tensor = torch.zeros(num_nodes, 20, dtype=torch.bool) # [N, 20] # Beginning of Sequence Mask # First 20 timesteps 
     rotate_angles: torch.Tensor = torch.zeros(num_nodes, dtype=torch.float) # [N] # Rotation Angles of the Nodes
 
@@ -195,7 +173,6 @@ def process_argoverse(split: str,
         padding_mask[node_idx, node_steps] = False
         if padding_mask[node_idx, 19]:  # make no predictions for actors that are unseen at the current time step
             padding_mask[node_idx, 20:] = True
-        # xy = torch.from_numpy(np.stack([actor_df['X'].values, actor_df['Y'].values], axis=-1)).float()
         
 
         # coords: Represents the x,y dimensions (so coords=2)
@@ -213,10 +190,6 @@ def process_argoverse(split: str,
             coords=2
         ).float()
 
-        
-        # x[node_idx, node_steps] = torch.matmul(xy - origin, rotate_mat) # Matrix Multiplication of the Position of the Nodes and the Rotation Matrix
-        # node_historical_steps = list(filter(lambda node_step: node_step < 20, node_steps)) #   I think this filters out the node steps less than 20 and only looks at the ones greater or equal to 20
-        
         # Rotate coordinates using einsum
         x[node_idx, node_steps] = einsum(
             xy - origin,           # [T, 2]
@@ -241,14 +214,6 @@ def process_argoverse(split: str,
     bos_mask[:, 1:20] = padding_mask[:, :19] & ~padding_mask[:, 1:20] # Its not really a beginning of sequence mask, it tells us if the agent is in the current scene but not in the previous scene
 
     positions = x.clone()
-    # x[:, 20:] = torch.where((padding_mask[:, 19].unsqueeze(-1) | padding_mask[:, 20:]).unsqueeze(-1),
-    #                         torch.zeros(num_nodes, 30, 2),
-    #                         x[:, 20:] - x[:, 19].unsqueeze(-2)) # TODO [N, 30, 2] # Replace with EINOPS
-    # x[:, 1:20] = torch.where((padding_mask[:, :19] | padding_mask[:, 1:20]).unsqueeze(-1),
-    #                           torch.zeros(num_nodes, 19, 2), # TODO this calculation should be done in the local endoder. Basically if you don't have a previous position, you can't calculate the difference
-    #                           x[:, 1:20] - x[:, :19]) # [N, 19, 2] # TODO Replace with EINOPS 
-    # x[:, 0] = torch.zeros(num_nodes, 2) # [N, 2] # Position of the Nodes at Time Step 0
-
 
     # Future positions (t >= 20)
     mask_future = repeat(
@@ -273,15 +238,12 @@ def process_argoverse(split: str,
         torch.zeros(num_nodes, 19, 2),
         x[:, 1:20] - x[:, :19]
     )
-
     # Initial position (t = 0)
     x[:, 0] = torch.zeros(num_nodes, 2)
-
 
     # get lane features at the current time step
     df_19 = df[df['TIMESTAMP'] == timestamps[19]]
     node_inds_19 = [actor_ids.index(actor_id) for actor_id in df_19['TRACK_ID']]
-    # node_positions_19 = torch.from_numpy(np.stack([df_19['X'].values, df_19['Y'].values], axis=-1)).float()
 
     # Stack coordinates using einops
     node_positions_19 = rearrange(
@@ -289,7 +251,6 @@ def process_argoverse(split: str,
         'coords points -> points coords',
         coords=2
     ).float()
-
 
     (lane_vectors, is_intersections, turn_directions, traffic_controls, lane_actor_index,
      lane_actor_vectors) = get_lane_features(am, node_inds_19, node_positions_19, origin, rotate_mat, city, radius) # Get the Lane Features
@@ -342,9 +303,7 @@ def get_lane_features(am: ArgoverseMap,
     lane_ids = set()
     for node_position in node_positions:
         lane_ids.update(am.get_lane_ids_in_xy_bbox(node_position[0], node_position[1], city, radius))
-    # node_positions0 = torch.matmul(node_positions - origin, rotate_mat).float() # rotation matrix is used to rotate the node positions to the AV's frame of reference
-   
-   
+      
     # This performs matrix multiplication to rotate points.
     # node_positions - origin: Centers the points at origin [N, 2]
     # rotate_mat: 2D rotation matrix [2, 2] (typically looks like [[cos θ, -sin θ], [sin θ, cos θ]])
@@ -359,17 +318,11 @@ def get_lane_features(am: ArgoverseMap,
     ).float()
 
     for lane_id in lane_ids:
-        # lane_centerline0 = torch.from_numpy(am.get_lane_segment_centerline(lane_id, city)[:, : 2]).float()
-        # With einops
-        # Fixed version
         lane_centerline = rearrange(
             torch.from_numpy(am.get_lane_segment_centerline(lane_id, city)),  # [L, 3]
             'l c -> l c',  # Keep original shape
         ).float()[:, :2]  # Then slice first two columns`
 
-
-        # lane_centerline = torch.matmul(lane_centerline - origin, rotate_mat)
-        # With einops
         lane_centerline = einsum(
             lane_centerline - origin,  # [L, 2]
             rotate_mat,               # [2, 2]
@@ -382,9 +335,7 @@ def get_lane_features(am: ArgoverseMap,
         lane_positions.append(lane_centerline[:-1])
         lane_vectors.append(lane_centerline[1:] - lane_centerline[:-1])
         count = len(lane_centerline) - 1
-        # is_intersections.append(is_intersection * torch.ones(count, dtype=torch.uint8))
 
-        # # With einops
         is_intersections.append(
             repeat(
                 torch.tensor(is_intersection, dtype=torch.uint8),  # single value
@@ -392,7 +343,6 @@ def get_lane_features(am: ArgoverseMap,
                 c=count
             )
         )
-
 
         if turn_direction == 'NONE':
             turn_direction = 0
@@ -402,11 +352,7 @@ def get_lane_features(am: ArgoverseMap,
             turn_direction = 2
         else:
             raise ValueError('turn direction is not valid')
-        # turn_directions.append(turn_direction * torch.ones(count, dtype=torch.uint8))
-        
-        # traffic_controls.append(traffic_control * torch.ones(count, dtype=torch.uint8))
 
-        # With einops
         turn_directions.append(
             repeat(
                 torch.tensor(turn_direction, dtype=torch.uint8),  # single value
@@ -423,12 +369,6 @@ def get_lane_features(am: ArgoverseMap,
             )
         )
 
-    # lane_positions = torch.cat(lane_positions, dim=0)
-    # lane_vectors = torch.cat(lane_vectors, dim=0)
-    # is_intersections = torch.cat(is_intersections, dim=0)
-    # turn_directions = torch.cat(turn_directions, dim=0)
-    # traffic_controls = torch.cat(traffic_controls, dim=0)
-
     # With einops
     lane_positions = rearrange(lane_positions, 'list l xy -> (list l) xy')
     lane_vectors = rearrange(lane_vectors, 'list l xy -> (list l) xy')
@@ -436,10 +376,6 @@ def get_lane_features(am: ArgoverseMap,
     turn_directions = rearrange(turn_directions, 'list l -> (list l)')
     traffic_controls = rearrange(traffic_controls, 'list l -> (list l)')
 
-
-    # lane_actor_index = torch.LongTensor(list(product(torch.arange(lane_vectors.size(0)), node_inds))).t().contiguous()
-
-    # With einops
     lane_indices = torch.arange(lane_vectors.size(0))
     node_indices = torch.tensor(node_inds)
 
@@ -458,15 +394,9 @@ def get_lane_features(am: ArgoverseMap,
     ).contiguous()
 
 
-    # lane_actor_vectors = \
-    #     lane_positions.repeat_interleave(len(node_inds), dim=0) - node_positions.repeat(lane_vectors.size(0), 1)
-    
     # This creates vectors from each node to each lane point,
     #  which can be used to calculate distances or spatial relationships
     #  between nodes and lanes.
-
-    
-    # With einops
     lane_actor_vectors = (
         repeat(
             lane_positions,                # [L, 2]
@@ -480,9 +410,7 @@ def get_lane_features(am: ArgoverseMap,
         )
     )
 
-    # mask = torch.norm(lane_actor_vectors, p=2, dim=-1) < radius
     # pairs: Represents each lane-actor pair combination. For example, if you have 10 lanes and 5 actors, you'd have 50 pairs
-    # With einops
     mask = (reduce(
         lane_actor_vectors ** 2,
         'pairs xy -> pairs',       
@@ -493,6 +421,3 @@ def get_lane_features(am: ArgoverseMap,
     lane_actor_vectors = lane_actor_vectors[mask]
 
     return lane_vectors, is_intersections, turn_directions, traffic_controls, lane_actor_index, lane_actor_vectors
-
-
-# DO this as a data class

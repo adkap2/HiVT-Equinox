@@ -1,12 +1,6 @@
 import equinox as eqx
 import jax
-import jax.numpy as jnp
-from typing import Optional, Tuple, List
-from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool, Union, Scalar
-
-from einops import rearrange, reduce
-
-# Import beartype
+from jaxtyping import Array, Float, PRNGKeyArray
 from beartype import beartype
 
 

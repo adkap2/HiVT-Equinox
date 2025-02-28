@@ -1,15 +1,12 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from typing import Optional, Tuple, List
-from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool, Union, Scalar
+from typing import Optional
+from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool, Scalar
 from models.equinox_models.embedding import SingleInputEmbedding, MultipleInputEmbedding
 
-from einops import rearrange, reduce
-
+from einops import rearrange
 from beartype import beartype
-
-# Add jax type signature to inputs and outputs
 
 from models.equinox_models.mlp import MLP
 
@@ -23,10 +20,8 @@ class AAEncoder(eqx.Module):
     attn_dropout: float
     lin_ih: eqx.nn.Linear
     lin_hh: eqx.nn.Linear
-    # Layer Norms
     norm1: eqx.nn.LayerNorm
     norm2: eqx.nn.LayerNorm
-    # Historical steps
     historical_steps: int
     embed_dim: int
     num_heads: int

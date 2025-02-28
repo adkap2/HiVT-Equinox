@@ -1,14 +1,11 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from typing import Optional, Tuple, List
-from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool
+from jaxtyping import Array, Float, PRNGKeyArray, Bool
 from models.equinox_models.embedding import SingleInputEmbedding
 
-from einops import rearrange, repeat, reduce
-
+from einops import rearrange, repeat
 from beartype import beartype
-
 from models.equinox_models.mlp import MLP
 
 

@@ -1,7 +1,7 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float, Int, PRNGKeyArray
+from jaxtyping import Array, Float, PRNGKeyArray
 from typing import Tuple
 from einops import rearrange, repeat
 from beartype import beartype

@@ -1,10 +1,8 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from typing import Optional, Tuple, List
-from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool
-
-from einops import rearrange, repeat, reduce
+from typing import List
+from jaxtyping import Array, Float, PRNGKeyArray, Bool
 
 from beartype import beartype
 
@@ -161,10 +159,8 @@ class EquinoxTemporalEncoderLayer(eqx.Module):
         key: PRNGKeyArray,
     ) -> Float[Array, "t=20+1 d=2"]:
 
-        # Split PRNG key for the two dropout operations
         key1, key2 = jax.random.split(key)
 
-        # Vmap the linear layers over sequence dimension
         vmapped_linear1 = jax.vmap(self.linear1)
         vmapped_linear2 = jax.vmap(self.linear2)
 

@@ -17,6 +17,8 @@ from utils import TemporalData
 from jaxtyping import Array, Float, PRNGKeyArray
 from jax.random import PRNGKey
 
+from beartype import beartype
+
 # Go up two levels (from tests/ to parent directory) and then to argoverse-api
 argoverse_path = os.path.join(
     os.path.dirname(  # up from tests/
@@ -30,7 +32,6 @@ sys.path.append(argoverse_path)
 
 from argoverse.map_representation.map_api import ArgoverseMap
 from datasets.torch.argoverse_v1_dataset import process_argoverse, ArgoverseV1Dataset
-
 
 class HiVTTest:
     def __init__(self,
@@ -46,7 +47,7 @@ class HiVTTest:
                  num_global_layers: int = 3,
                  local_radius: float = 50,
                  *,
-                 key: PRNGKeyArray):
+                 key: jax.random.PRNGKey):
 
         keys = jax.random.split(key, 4)
         
@@ -143,6 +144,11 @@ def test_hivt_with_argoverse():
     print("\nSample values:")
     print(f"First trajectory prediction: {y_hat[0,0,0]}")
     print(f"First mode probability: {pi[0]}")
+
+
+    # Print the full output
+    print(f"Full output: {y_hat}")
+    print(f"Full output: {pi}")
 
 if __name__ == "__main__":
     test_hivt_with_argoverse()

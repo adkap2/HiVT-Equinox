@@ -3,10 +3,7 @@ import jax
 import jax.numpy as jnp
 from typing import List, Optional
 from beartype import beartype
-from jax._src.prng import (
-    PRNGKeyArray,
-)  # or from jaxlib.xla_extension import PrngKeyType
-from jaxtyping import Array, Float, PRNGKeyArray, Int, Bool, Union, Scalar
+from jaxtyping import Array, Float
 
 
 
